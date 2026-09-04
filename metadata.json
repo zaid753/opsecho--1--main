@@ -1,0 +1,6 @@
+{
+  "name": "OpsEcho",
+  "description": "AI-powered real-time incident command platform for coordinated technical response.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
