@@ -6,13 +6,14 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng';
 import client from '../api/client';
 
-export const useAgora = (incidentId: string | undefined) => {
+export const useAgoraRoom = (incidentId: string | undefined) => {
   const [localAudioTrack, setLocalAudioTrack] = useState<IMicrophoneAudioTrack | null>(null);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   
   // Real-time audio levels (0-100)
   const [localVolume, setLocalVolume] = useState<number>(0);
@@ -22,6 +23,24 @@ export const useAgora = (incidentId: string | undefined) => {
   const localAudioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const isJoiningRef = useRef<boolean>(false);
 
+  const checkMicrophonePermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Release tracks immediately, we just needed to check permission
+      stream.getTracks().forEach(track => track.stop());
+      setPermissionDenied(false);
+      return true;
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setPermissionDenied(true);
+        setError("Microphone access denied. Please enable it in your browser settings.");
+      } else {
+        setError("Microphone unavailable or already in use.");
+      }
+      return false;
+    }
+  };
+
   const joinChannel = useCallback(async () => {
     if (!incidentId || isJoiningRef.current || agoraClientRef.current) return;
     
@@ -29,10 +48,21 @@ export const useAgora = (incidentId: string | undefined) => {
     setIsJoining(true);
     setError(null);
 
+    const hasPermission = await checkMicrophonePermission();
+    if (!hasPermission) {
+      isJoiningRef.current = false;
+      setIsJoining(false);
+      return;
+    }
+
     try {
       // 1. Get token from backend
       const res = await client.post('/agora/token', { incidentId });
-      const { token, channelName, appId } = res.data;
+      const { token, channelName, appId, uid } = res.data;
+
+      if (!appId) {
+        throw new Error("AGORA_APP_ID is missing from the backend configuration.");
+      }
 
       // 2. Initialize Agora Client
       const agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -78,7 +108,7 @@ export const useAgora = (incidentId: string | undefined) => {
       });
 
       // 4. Join Channel
-      await agoraClient.join(appId, channelName, token, null);
+      await agoraClient.join(appId, channelName, token, uid);
       
       // 5. Create and Publish Local Audio
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true });
@@ -89,7 +119,7 @@ export const useAgora = (incidentId: string | undefined) => {
       setIsConnected(true);
     } catch (err: any) {
       console.error('Agora Join Error:', err);
-      setError(err.response?.data?.error || 'Failed to join voice room');
+      setError(err.message || err.response?.data?.error || 'Failed to join voice room');
       
       // Attempt cleanup on failure
       if (localAudioTrackRef.current) {
@@ -161,6 +191,7 @@ export const useAgora = (incidentId: string | undefined) => {
     localVolume,
     remoteVolumes,
     error,
+    permissionDenied,
     joinChannel,
     leaveChannel,
     toggleMute

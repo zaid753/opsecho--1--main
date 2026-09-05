@@ -7,9 +7,11 @@ import {
   CheckCircle2, HelpCircle, TriangleAlert, 
   FileText, History, Layout
 } from "lucide-react";
-import { useAgora } from "../hooks/useAgora";
+import { useAgoraRoom } from "../hooks/useAgoraRoom";
 import { useSocket } from "../context/SocketContext";
-import { useSpeechToText } from "../hooks/useSpeechToText";
+import { useGeminiSTT } from "../hooks/useGeminiSTT";
+import AudioVisualizer from "../components/AudioVisualizer";
+import { useAIAudioParticipant } from "../hooks/useAIAudioParticipant";
 import client from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { IncidentStatus } from "../types";
@@ -17,6 +19,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import BackButton from "../components/BackButton";
+import DebugPanel from "../components/DebugPanel";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -29,14 +32,25 @@ export default function IncidentRoom() {
   const [incident, setIncident] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
+  const [partialTranscript, setPartialTranscript] = useState<{userId: string, userName: string, text: string} | null>(null);
+  const [chatInput, setChatInput] = useState("");
   
   const chatEndRef = React.useRef<HTMLDivElement>(null);
+
+  const socket = useSocket();
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !socket || !id) return;
+    socket.emit("TRANSCRIPT_FINAL", { incidentId: id, text: chatInput });
+    setChatInput("");
+  };
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const socket = useSocket();
+
   const { 
     isConnected: isVoiceConnected, 
     isMuted, 
@@ -45,13 +59,17 @@ export default function IncidentRoom() {
     localVolume,
     remoteVolumes,
     error: voiceError,
+    permissionDenied,
     joinChannel, 
     leaveChannel, 
     toggleMute 
-  } = useAgora(id);
+  } = useAgoraRoom(id);
 
-  const { isListening: isSTTActive, transcript } = useSpeechToText(id, isVoiceConnected && !isMuted);
+  const { isListening: isSTTActive, transcript: localTranscript, mediaStream } = useGeminiSTT(id, isVoiceConnected && !isMuted);
   const isSpeaking = localVolume > 5;
+  
+  // AI Voice Participant (Listens for AI_SPEAK and publishes to Agora)
+  const { isAISpeaking } = useAIAudioParticipant(id, isSpeaking);
 
   useEffect(() => {
     if (id) {
@@ -65,24 +83,34 @@ export default function IncidentRoom() {
           }
         });
 
-        socket.on("transcript:new", (newTranscript) => {
+        socket.on("TRANSCRIPT_NEW", (newTranscript) => {
           if (newTranscript.incidentId === id) {
             setIncident((prev: any) => {
               if (!prev) return prev;
-              // Check for duplicates in case incident:updated caught it first
               if (prev.transcripts?.find((t: any) => t.id === newTranscript.id)) return prev;
               return {
                 ...prev,
                 transcripts: [newTranscript, ...(prev.transcripts || [])]
               };
             });
+            // Clear partial when final arrives
+            setPartialTranscript(null);
           }
+        });
+
+        socket.on("TRANSCRIPT_PARTIAL", (data: {userId: string, userName: string, text: string}) => {
+          setPartialTranscript(data);
+          // Auto clear after 3 seconds
+          setTimeout(() => {
+            setPartialTranscript((prev) => prev?.userId === data.userId ? null : prev);
+          }, 3000);
         });
 
         return () => {
           socket.emit("leave-incident", id);
           socket.off("incident:updated");
-          socket.off("transcript:new");
+          socket.off("TRANSCRIPT_NEW");
+          socket.off("TRANSCRIPT_PARTIAL");
         };
       }
     }
@@ -105,13 +133,20 @@ export default function IncidentRoom() {
     }
   };
 
+  const [isResolving, setIsResolving] = useState(false);
+
   const handleResolve = async () => {
     if (!window.confirm("Are you sure you want to resolve this incident? This will close the voice room.")) return;
+    setIsResolving(true);
     try {
       await client.post(`/incidents/${id}/resolve`);
-      fetchIncident();
+      // UI updates via socket incident:updated
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 2000);
     } catch (err) {
       console.error("Failed to resolve incident", err);
+      setIsResolving(false);
     }
   };
 
@@ -171,9 +206,15 @@ export default function IncidentRoom() {
           {incident.status !== 'RESOLVED' && (
             <button 
               onClick={handleResolve}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-all shadow-lg shadow-emerald-600/20"
+              disabled={isResolving || incident.status === "RESOLVED"}
+              className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-sm rounded-lg transition-colors flex items-center gap-2"
             >
-              Resolve Incident
+              {isResolving ? (
+                <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              {incident.status === "RESOLVED" ? "Resolved" : (isResolving ? "Resolving..." : "Resolve Incident")}
             </button>
           )}
         </div>
@@ -455,11 +496,38 @@ export default function IncidentRoom() {
             </div>
           </div>
           
+          <div className="p-4 bg-[#0a0a0a] border-t border-white/5">
+            <form onSubmit={handleSendChat} className="flex gap-2">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Type a message manually..."
+                className="flex-1 bg-zinc-900 border border-white/10 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-blue-500 text-white placeholder:text-zinc-500"
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim()}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50 transition-colors"
+              >
+                Send
+              </button>
+            </form>
+          </div>
+
           <div className="p-4 bg-zinc-950/50 border-t border-white/5">
             <div className="bg-blue-600/10 border border-blue-600/20 p-4 rounded-2xl">
-              <div className="flex items-center gap-2 mb-2">
-                <TriangleAlert className="w-4 h-4 text-blue-400" />
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400">AI Observer</h4>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <TriangleAlert className="w-4 h-4 text-blue-400" />
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400">AI Observer</h4>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className={cn("w-1.5 h-1.5 rounded-full", isAISpeaking ? "bg-emerald-500 animate-pulse" : "bg-blue-500 animate-pulse")} />
+                  <span className="text-[9px] uppercase tracking-widest font-bold text-zinc-500">
+                    {isAISpeaking ? "Speaking" : "Listening"}
+                  </span>
+                </div>
               </div>
               <p className="text-[11px] text-blue-200/70 leading-relaxed italic">
                 Listening to the room. I will automatically extract facts and actions as they are discussed.
@@ -470,8 +538,9 @@ export default function IncidentRoom() {
       </div>
 
       {/* Live Voice-to-Text Subtitles */}
+      <AudioVisualizer stream={mediaStream} isActive={isSTTActive} />
       <AnimatePresence>
-        {transcript && (
+        {(localTranscript || partialTranscript) && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -485,9 +554,14 @@ export default function IncidentRoom() {
                   <div className="absolute inset-0 rounded-full border border-blue-500/30 animate-ping" />
                 </div>
               </div>
-              <p className="text-lg font-medium text-white/95 leading-relaxed drop-shadow-lg">
-                {transcript}
-              </p>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-1">
+                  {partialTranscript ? partialTranscript.userName : "You"}
+                </span>
+                <p className="text-lg font-medium text-white/95 leading-relaxed drop-shadow-lg">
+                  {localTranscript || partialTranscript?.text}
+                </p>
+              </div>
             </div>
           </motion.div>
         )}
@@ -563,6 +637,7 @@ export default function IncidentRoom() {
           </div>
         </div>
       </footer>
+      <DebugPanel />
     </div>
   );
 }

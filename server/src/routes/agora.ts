@@ -34,22 +34,22 @@ router.post("/token", authenticate, async (req: AuthRequest, res) => {
     }
 
     const channelName = `incident_${incidentId}`;
-    const uid = 0; // Let Agora assign a numeric UID
-    const role = RtcRole.PUBLISHER;
+    const account = req.body.customUid || userId; // Use string UUID or customUid
+    const role = req.body.role === 'publisher' ? RtcRole.PUBLISHER : RtcRole.PUBLISHER;
     const expirationTimeInSeconds = 3600;
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
-    const token = RtcTokenBuilder.buildTokenWithUid(
+    const token = RtcTokenBuilder.buildTokenWithAccount(
       APP_ID,
       APP_CERTIFICATE,
       channelName,
-      uid,
+      account,
       role,
       privilegeExpiredTs
     );
 
-    res.json({ token, channelName, uid, appId: APP_ID });
+    res.json({ token, channelName, uid: account, appId: APP_ID });
   } catch (error) {
     console.error("Agora token error:", error);
     res.status(500).json({ error: "Failed to generate Agora token" });

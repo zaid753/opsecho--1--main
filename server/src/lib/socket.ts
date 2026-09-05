@@ -1,4 +1,4 @@
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import http from "http";
 import jwt from "jsonwebtoken";
 import { processTranscript } from "../services/aiProcessor";
@@ -13,13 +13,21 @@ export const initSocket = (server: http.Server) => {
     }
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth.token;
     if (!token) return next(new Error("Authentication error"));
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as any;
-      (socket as any).user = decoded;
+      
+      // Fetch full user from DB to get the name (since JWT only has id and role)
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+      
+      if (!user) return next(new Error("User not found"));
+      
+      (socket as any).user = user;
       next();
     } catch (err) {
       next(new Error("Authentication error"));
@@ -40,8 +48,17 @@ export const initSocket = (server: http.Server) => {
       console.log(`[Socket] User ${user.id} left incident room: ${incidentId}`);
     });
 
-    socket.on("transcript:send", async ({ incidentId, text }: { incidentId: string; text: string }) => {
-      await processTranscript(io, socket, incidentId, text, user.name, user.id);
+    socket.on("TRANSCRIPT_PARTIAL", ({ incidentId, text }: { incidentId: string; text: string }) => {
+      socket.to(`incident:${incidentId}`).emit("TRANSCRIPT_PARTIAL", { 
+        userId: user.id, 
+        userName: user.name, 
+        text 
+      });
+    });
+
+    socket.on("TRANSCRIPT_FINAL", ({ incidentId, text }: { incidentId: string; text: string }) => {
+      // Fire and forget: AI processes asynchronously and doesn't block the socket thread
+      processTranscript(io, socket, incidentId, text, user.name, user.id).catch(console.error);
     });
 
     socket.on("disconnect", () => {

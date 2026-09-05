@@ -192,6 +192,8 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+import { generateIncidentSummary } from "../services/gemini";
+
 // Resolve Incident
 router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
@@ -200,10 +202,28 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   try {
+    // 1. Fetch current incident data for summary
+    const currentIncident = await prisma.incident.findUnique({
+      where: { id },
+      include: {
+        facts: true,
+        decisions: true,
+        actions: true,
+        risks: true
+      }
+    });
+
+    if (!currentIncident) return res.status(404).json({ error: "Incident not found" });
+
+    // 2. Generate summary
+    const summary = await generateIncidentSummary(currentIncident);
+
+    // 3. Persist summary and update status
     const incident = await prisma.incident.update({
       where: { id },
       data: { 
         status: "RESOLVED",
+        summary: summary,
         timeline: {
           create: {
             type: "STATUS_CHANGE",
@@ -212,8 +232,22 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
           }
         }
       },
+      include: {
+        createdBy: { select: { name: true, role: true } },
+        participants: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+        },
+        actions: { include: { owner: { select: { name: true } } } },
+        facts: true,
+        hypotheses: true,
+        decisions: true,
+        conflicts: true,
+        transcripts: { orderBy: { timestamp: "desc" }, take: 50 },
+        timeline: { orderBy: { timestamp: "asc" } },
+      },
     });
 
+    // 4. Broadcast the final resolved state
     const io = req.app.get("io");
     io.to(`incident:${id}`).emit("incident:updated", incident);
 

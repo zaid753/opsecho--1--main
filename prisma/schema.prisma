@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -63,6 +64,7 @@ model Incident {
   roomCode    String         @unique
   title       String
   description String?
+  summary     String?
   severity    String
   status      IncidentStatus @default(CREATED)
   service     String?
