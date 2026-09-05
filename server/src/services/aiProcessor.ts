@@ -77,11 +77,27 @@ export const processTranscript = async (
     }
 
     if (aiResult.actions && aiResult.actions.length > 0) {
+      // Gap 4: Fuzzy-match the AI-extracted owner name to a real participant
+      const participants = await prisma.incidentParticipant.findMany({
+        where: { incidentId },
+        include: { user: { select: { id: true, name: true } } }
+      });
+
+      const matchOwner = (ownerName: string): string | null => {
+        if (!ownerName) return null;
+        const lower = ownerName.toLowerCase().trim();
+        const match = participants.find(p =>
+          p.user.name.toLowerCase().includes(lower) || lower.includes(p.user.name.toLowerCase().split(' ')[0])
+        );
+        return match?.user?.id || null;
+      };
+
       promises.push(prisma.action.createMany({
         data: aiResult.actions.map((a: any) => ({
           incidentId,
           description: a.description,
           isCritical: a.isCritical || false,
+          ownerId: matchOwner(a.owner || '') || undefined,
         })),
       }));
     }

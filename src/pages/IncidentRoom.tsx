@@ -5,7 +5,7 @@ import {
   Mic, MicOff, PhoneOff, AlertCircle, 
   Clock, Share2, ChevronRight, Activity,
   CheckCircle2, HelpCircle, TriangleAlert, 
-  FileText, History, Layout
+  FileText, History, Layout, AlertTriangle, XCircle, Volume2
 } from "lucide-react";
 import { useAgoraRoom } from "../hooks/useAgoraRoom";
 import { useGeminiSTT } from "../hooks/useGeminiSTT";
@@ -33,6 +33,11 @@ export default function IncidentRoom() {
   const [isLoading, setIsLoading] = useState(true);
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  // Critical actions pending human confirmation
+  const [pendingCriticalActions, setPendingCriticalActions] = useState<any[]>([]);
+  // Track last seen AI transcript count so we can fire TTS on new ones
+  const lastAITranscriptCountRef = useRef(0);
+  const spokenTranscriptIdsRef = useRef<Set<string>>(new Set());
   
   const chatEndRef = React.useRef<HTMLDivElement>(null);
 
@@ -110,7 +115,35 @@ export default function IncidentRoom() {
   const fetchIncidentSilent = useCallback(async () => {
     try {
       const res = await client.get(`/incidents/${id}`);
-      setIncident(res.data);
+      const updated = res.data;
+      setIncident(updated);
+
+      // ── AI Spoken Summaries (Gap 2) ──────────────────────────────────────────
+      // Speak any new AI Observer transcript that we haven't spoken yet
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        const aiTranscripts = (updated.transcripts || [])
+          .filter((t: any) => t.userName === 'AI Observer');
+        for (const t of aiTranscripts) {
+          if (!spokenTranscriptIdsRef.current.has(t.id)) {
+            spokenTranscriptIdsRef.current.add(t.id);
+            const utterance = new SpeechSynthesisUtterance(t.text);
+            utterance.rate = 1.05;
+            utterance.pitch = 0.9;
+            // Prefer a natural-sounding voice if available
+            const voices = window.speechSynthesis.getVoices();
+            const preferred = voices.find(v =>
+              v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha'))
+            );
+            if (preferred) utterance.voice = preferred;
+            window.speechSynthesis.speak(utterance);
+          }
+        }
+      }
+
+      // ── Critical Action Confirmation (Gap 3) ─────────────────────────────────
+      // Surface any newly-detected critical actions that haven't been acknowledged
+      const criticals = (updated.actions || []).filter((a: any) => a.isCritical && a.status === 'PENDING');
+      setPendingCriticalActions(criticals);
     } catch { /* ignore */ }
   }, [id]);
 
@@ -314,19 +347,48 @@ export default function IncidentRoom() {
                     </div>
                   </Section>
 
+                  {/* Conflicts & Missing Info (Gap 1 — now shown) */}
+                  {incident.conflicts && incident.conflicts.length > 0 && (
+                    <Section title="Conflicts & Gaps" icon={<AlertTriangle className="w-4 h-4 text-red-400" />} className="col-span-2">
+                      <div className="grid grid-cols-2 gap-3">
+                        {incident.conflicts.map((c: any) => (
+                          <div key={c.id} className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-xs leading-relaxed text-red-200 flex items-start gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+                            {c.description}
+                          </div>
+                        ))}
+                      </div>
+                    </Section>
+                  )}
+
                   <Section title="Action Items" icon={<Zap className="w-4 h-4 text-blue-500" />} className="col-span-2">
                     <div className="grid grid-cols-2 gap-4">
                       {incident.actions?.map((a: any) => (
-                        <div key={a.id} className="p-4 bg-zinc-900/50 border border-white/5 rounded-2xl flex items-center justify-between group">
+                        <div key={a.id} className={cn(
+                          "p-4 border rounded-2xl flex items-center justify-between group transition-colors",
+                          a.isCritical
+                            ? "bg-amber-500/5 border-amber-500/30"
+                            : "bg-zinc-900/50 border-white/5"
+                        )}>
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center">
-                              <Zap className="w-4 h-4 text-blue-400" />
+                            <div className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center",
+                              a.isCritical ? "bg-amber-500/20" : "bg-zinc-800"
+                            )}>
+                              {a.isCritical
+                                ? <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                : <Zap className="w-4 h-4 text-blue-400" />}
                             </div>
                             <div>
                               <p className="text-xs font-bold mb-0.5">{a.description}</p>
                               <div className="flex items-center gap-2">
                                 <span className="text-[9px] text-zinc-500 uppercase tracking-wider">{a.owner?.name || "Unassigned"}</span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/10 uppercase tracking-widest">{a.status}</span>
+                                <span className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded border uppercase tracking-widest",
+                                  a.isCritical
+                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                    : "bg-blue-500/10 text-blue-400 border-blue-500/10"
+                                )}>{a.isCritical ? 'CRITICAL' : a.status}</span>
                               </div>
                             </div>
                           </div>
@@ -532,6 +594,49 @@ export default function IncidentRoom() {
 
       {/* Voice Animation — shows as soon as mic is live */}
       <AudioVisualizer stream={vizStream} isActive={isVoiceConnected && !isMuted} />
+
+      {/* Critical Action Confirmation Banner (Gap 3) */}
+      <AnimatePresence>
+        {pendingCriticalActions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4"
+          >
+            <div className="bg-amber-950/90 backdrop-blur-xl border border-amber-500/40 rounded-2xl p-4 shadow-2xl">
+              <div className="flex items-center gap-3 mb-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                <p className="text-sm font-bold text-amber-200">Critical Action Requires Confirmation</p>
+              </div>
+              <div className="space-y-2">
+                {pendingCriticalActions.map((a: any) => (
+                  <div key={a.id} className="flex items-center justify-between gap-4 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
+                    <p className="text-xs text-amber-100 flex-1">{a.description}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={async () => {
+                          await client.patch(`/incidents/${id}/actions/${a.id}`, { status: 'IN_PROGRESS' });
+                          await fetchIncidentSilent();
+                        }}
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold rounded-lg transition-colors"
+                      >
+                        Confirm & Start
+                      </button>
+                      <button
+                        onClick={() => setPendingCriticalActions(prev => prev.filter(x => x.id !== a.id))}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                      >
+                        <XCircle className="w-4 h-4 text-zinc-400" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {localTranscript && (
           <motion.div

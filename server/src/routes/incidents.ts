@@ -231,6 +231,43 @@ router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Update action status (e.g., confirm a critical action)
+router.patch("/:id/actions/:actionId", authenticate, async (req: AuthRequest, res) => {
+  const { id, actionId } = req.params;
+  const { status } = req.body;
+  const userId = req.user?.id;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!status) return res.status(400).json({ error: "Status required" });
+
+  try {
+    const participant = await prisma.incidentParticipant.findUnique({
+      where: { incidentId_userId: { incidentId: id, userId } },
+    });
+    if (!participant) return res.status(403).json({ error: "Forbidden" });
+
+    const action = await prisma.action.update({
+      where: { id: actionId },
+      data: { status },
+    });
+
+    // Log in timeline
+    await prisma.timelineEvent.create({
+      data: {
+        incidentId: id,
+        type: 'ACTION_CONFIRMED',
+        description: `Critical action confirmed: ${action.description}`,
+        metadata: { confirmedBy: userId, actionId }
+      }
+    });
+
+    res.json(action);
+  } catch (error) {
+    console.error("Update action error:", error);
+    res.status(500).json({ error: "Failed to update action" });
+  }
+});
+
 // Resolve Incident
 router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
