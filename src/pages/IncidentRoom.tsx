@@ -142,7 +142,7 @@ export default function IncidentRoom() {
 
       // ── Critical Action Confirmation (Gap 3) ─────────────────────────────────
       // Surface any newly-detected critical actions that haven't been acknowledged
-      const criticals = (updated.actions || []).filter((a: any) => a.isCritical && a.status === 'PENDING');
+      const criticals = (updated.actions || []).filter((a: any) => a.isCritical && a.status === 'TODO');
       setPendingCriticalActions(criticals);
     } catch { /* ignore */ }
   }, [id]);
