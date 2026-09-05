@@ -75,12 +75,19 @@ export default function IncidentRoom() {
   } = useAgoraRoom(id);
 
   // Pass Agora's AEC-processed track to Gemini STT — eliminates echo
-  const { isListening: isSTTActive, transcript: localTranscript, mediaStream } = useGeminiSTT(
+  const { isListening: isSTTActive, transcript: localTranscript } = useGeminiSTT(
     id,
     isVoiceConnected && !isMuted,
     localMediaTrack
   );
   const isSpeaking = localVolume > 5;
+
+  // Build a MediaStream from the Agora track for the audio visualizer
+  // This is available immediately when voice connects (not dependent on Gemini)
+  const vizStream = React.useMemo(() => {
+    if (!localMediaTrack) return null;
+    try { return new MediaStream([localMediaTrack]); } catch { return null; }
+  }, [localMediaTrack]);
   
   // AI Voice Participant (Listens for AI_SPEAK and publishes to Agora)
   const { isAISpeaking } = useAIAudioParticipant(id, isSpeaking);
@@ -523,8 +530,8 @@ export default function IncidentRoom() {
         </aside>
       </div>
 
-      {/* Voice-to-Text AudioVisualizer overlay */}
-      <AudioVisualizer stream={mediaStream} isActive={isSTTActive} />
+      {/* Voice Animation — shows as soon as mic is live */}
+      <AudioVisualizer stream={vizStream} isActive={isVoiceConnected && !isMuted} />
       <AnimatePresence>
         {localTranscript && (
           <motion.div

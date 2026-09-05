@@ -162,8 +162,9 @@ export const useGeminiSTT = (
     return () => {
       stopListening();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEnabled, agoraTrack]);
+  // startListening is memoized via useCallback; including it ensures
+  // the effect re-fires when agoraTrack becomes available after join.
+  }, [isEnabled, agoraTrack, startListening, stopListening]);
 
   return { isListening, transcript, mediaStream };
 };
