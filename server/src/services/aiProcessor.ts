@@ -8,18 +8,24 @@ export const processTranscript = async (
   incidentId: string, 
   text: string, 
   userName: string,
-  userId: string
+  userId: string,
+  existingTranscript?: any
 ) => {
   try {
     // 1. Persist Transcript
-    const transcript = await prisma.transcript.create({
-      data: {
-        incidentId,
-        userId,
-        userName,
-        text,
-      },
-    });
+    let transcript;
+    if (existingTranscript) {
+      transcript = existingTranscript;
+    } else {
+      transcript = await prisma.transcript.create({
+        data: {
+          incidentId,
+          userId,
+          userName,
+          text,
+        },
+      });
+    }
 
     // Broadcast transcript to room
     io.to(`incident:${incidentId}`).emit("TRANSCRIPT_NEW", transcript);

@@ -74,28 +74,70 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ stream, isActive }) =
       const H = canvas.height;
       canvasCtx.clearRect(0, 0, W, H);
 
-      // Only draw the middle 32 bins (more pleasing visually)
-      const numBars = 32;
-      const start = Math.floor((bufferLength - numBars) / 2);
-      const barW = W / numBars;
-      const maxBarH = H * 0.9;
+      // Create a gradient for the wave
+      const gradient = canvasCtx.createLinearGradient(0, 0, W, 0);
+      gradient.addColorStop(0, '#6366f1'); // Indigo
+      gradient.addColorStop(0.5, '#ec4899'); // Pink
+      gradient.addColorStop(1, '#8b5cf6'); // Violet
 
-      for (let i = 0; i < numBars; i++) {
-        const val = dataArray[start + i] / 255; // 0..1
-        const barH = Math.max(4, val * maxBarH);
-        const x = i * barW;
-        const y = (H - barH) / 2;
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(0, H / 2);
 
-        // Blue → indigo gradient based on volume
-        const hue = 220 + val * 30;
-        const alpha = 0.5 + val * 0.5;
-        canvasCtx.fillStyle = `hsla(${hue}, 90%, 65%, ${alpha})`;
+      const numPoints = 64;
+      const sliceWidth = W / numPoints;
+      let x = 0;
 
-        // Rounded bars
-        canvasCtx.beginPath();
-        canvasCtx.roundRect(x + 1, y, barW - 2, barH, barW / 3);
-        canvasCtx.fill();
+      for (let i = 0; i < numPoints; i++) {
+        // Use a smoothed value
+        const val = dataArray[i] / 255.0;
+        const v = val * (H / 2) * 1.5; // Amplify slightly
+        
+        // Alternate up and down to create a mirrored waveform effect, or just draw a filled wave
+        const y = (H / 2) - v;
+
+        if (i === 0) {
+          canvasCtx.moveTo(x, y);
+        } else {
+          // Quadratic curve for smoothness
+          const prevX = x - sliceWidth;
+          const prevVal = dataArray[i-1] / 255.0;
+          const prevY = (H / 2) - (prevVal * (H / 2) * 1.5);
+          const cpX = prevX + sliceWidth / 2;
+          const cpY = prevY;
+          canvasCtx.quadraticCurveTo(cpX, cpY, x, y);
+        }
+
+        x += sliceWidth;
       }
+      
+      // Mirror the bottom half for a symmetrical wave
+      for (let i = numPoints - 1; i >= 0; i--) {
+        const val = dataArray[i] / 255.0;
+        const v = val * (H / 2) * 1.5;
+        const y = (H / 2) + v;
+        const prevX = (i + 1) * sliceWidth;
+        const currX = i * sliceWidth;
+        
+        if (i === numPoints - 1) {
+          canvasCtx.lineTo(currX, y);
+        } else {
+          const cpX = currX + sliceWidth / 2;
+          canvasCtx.lineTo(currX, y);
+        }
+      }
+
+      canvasCtx.lineTo(0, H / 2);
+      
+      canvasCtx.fillStyle = gradient;
+      canvasCtx.fill();
+      
+      // Add a glowing line on top
+      canvasCtx.shadowBlur = 10;
+      canvasCtx.shadowColor = '#ec4899';
+      canvasCtx.strokeStyle = 'white';
+      canvasCtx.lineWidth = 1;
+      canvasCtx.stroke();
+      canvasCtx.shadowBlur = 0; // reset
     };
 
     draw();
@@ -113,36 +155,34 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ stream, isActive }) =
 
   return (
     <div
+      className="glass-panel w-full max-w-2xl mx-auto mt-4"
       style={{
-        position: 'fixed',
-        bottom: '88px', // just above the footer control bar
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 40,
-        pointerEvents: 'none',
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        background: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        gap: '16px',
+        borderRadius: '24px',
+        padding: '16px 32px',
+        boxShadow: '0 0 40px rgba(99, 102, 241, 0.1)',
+        background: 'rgba(9, 9, 11, 0.6)',
+        border: '1px solid rgba(99, 102, 241, 0.2)',
         backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(99,102,241,0.3)',
-        borderRadius: '16px',
-        padding: '8px 20px',
       }}
     >
       {/* Pulsing mic indicator */}
-      <div style={{ position: 'relative', width: 10, height: 10, flexShrink: 0 }}>
+      <div style={{ position: 'relative', width: 12, height: 12, flexShrink: 0 }}>
         <div style={{
-          width: 10, height: 10, borderRadius: '50%',
+          width: 12, height: 12, borderRadius: '50%',
           background: '#6366f1',
           animation: 'pulse 1.2s ease-in-out infinite',
+          boxShadow: '0 0 15px #6366f1'
         }} />
       </div>
       <canvas
         ref={canvasRef}
-        width={240}
-        height={40}
-        style={{ display: 'block' }}
+        width={320}
+        height={60}
+        style={{ display: 'block', width: '100%', maxWidth: '320px' }}
       />
     </div>
   );

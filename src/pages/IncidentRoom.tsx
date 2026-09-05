@@ -13,6 +13,7 @@ import AudioVisualizer from "../components/AudioVisualizer";
 import { useAIAudioParticipant } from "../hooks/useAIAudioParticipant";
 import client from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import { IncidentStatus } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
@@ -28,16 +29,19 @@ export default function IncidentRoom() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const socket = useSocket();
   const [incident, setIncident] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [uptime, setUptime] = useState("00:00:00");
   // Critical actions pending human confirmation
   const [pendingCriticalActions, setPendingCriticalActions] = useState<any[]>([]);
   // Track last seen AI transcript count so we can fire TTS on new ones
   const lastAITranscriptCountRef = useRef(0);
   const spokenTranscriptIdsRef = useRef<Set<string>>(new Set());
+  const [activePartials, setActivePartials] = useState<Record<string, { userName: string, text: string, timestamp: number }>>({});
   
   const chatEndRef = React.useRef<HTMLDivElement>(null);
 
@@ -83,7 +87,8 @@ export default function IncidentRoom() {
   const { isListening: isSTTActive, transcript: localTranscript } = useGeminiSTT(
     id,
     isVoiceConnected && !isMuted,
-    localMediaTrack
+    localMediaTrack,
+    socket
   );
   const isSpeaking = localVolume > 5;
 
@@ -152,6 +157,118 @@ export default function IncidentRoom() {
     if (id) fetchIncident();
   }, [id, fetchIncident]);
 
+  // Real-time Uptime Calculation
+  useEffect(() => {
+    if (!incident?.createdAt) return;
+
+    // Run once immediately so it doesn't wait 1s for the first tick
+    const updateTimer = () => {
+      const start = new Date(incident.createdAt).getTime();
+      const end = incident.status === "RESOLVED" && incident.updatedAt ? new Date(incident.updatedAt).getTime() : Date.now();
+      const diff = end - start;
+      if (diff < 0) return;
+      
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      
+      setUptime(
+        `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+      );
+    };
+    
+    updateTimer();
+    
+    // If it's resolved, the time is fixed, no need to run the interval
+    if (incident.status === "RESOLVED") return;
+
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [incident?.createdAt, incident?.status, incident?.updatedAt]);
+
+  // Socket setup for real-time chat and updates
+  useEffect(() => {
+    if (!socket || !id) return;
+    
+    // Join the incident room
+    socket.emit("join-incident", id);
+    
+    const handleNewTranscript = (newTranscript: any) => {
+      setIncident((prev: any) => {
+        if (!prev) return prev;
+        const exists = prev.transcripts?.find((t: any) => t.id === newTranscript.id);
+        if (exists) return prev;
+        
+        return {
+          ...prev,
+          transcripts: [newTranscript, ...(prev.transcripts || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        };
+      });
+      
+      // Auto-scroll chat
+      setTimeout(scrollToBottom, 100);
+
+      // Speak AI Observer new messages
+      if (newTranscript.userName === 'AI Observer' && typeof window !== 'undefined' && window.speechSynthesis) {
+        if (!spokenTranscriptIdsRef.current.has(newTranscript.id)) {
+          spokenTranscriptIdsRef.current.add(newTranscript.id);
+          const utterance = new SpeechSynthesisUtterance(newTranscript.text);
+          utterance.rate = 1.05;
+          utterance.pitch = 0.9;
+          const voices = window.speechSynthesis.getVoices();
+          const preferred = voices.find(v =>
+            v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha'))
+          );
+          if (preferred) utterance.voice = preferred;
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    };
+
+    const handleIncidentUpdated = (updatedIncident: any) => {
+      setIncident(updatedIncident);
+    };
+
+    const handlePartial = (data: { incidentId: string, userId?: string, userName: string, text: string }) => {
+      if (!data.text) return;
+      const key = data.userId || data.userName;
+      setActivePartials(prev => ({
+        ...prev,
+        [key]: { userName: data.userName, text: data.text, timestamp: Date.now() }
+      }));
+    };
+
+    socket.on("TRANSCRIPT_NEW", handleNewTranscript);
+    socket.on("incident:updated", handleIncidentUpdated);
+    socket.on("TRANSCRIPT_PARTIAL", handlePartial);
+
+    return () => {
+      socket.emit("leave-incident", id);
+      socket.off("TRANSCRIPT_NEW", handleNewTranscript);
+      socket.off("incident:updated", handleIncidentUpdated);
+      socket.off("TRANSCRIPT_PARTIAL", handlePartial);
+    };
+  }, [socket, id]);
+
+  // Clean up stale partials (older than 3 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setActivePartials(prev => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [key, val] of Object.entries(next)) {
+          if (now - val.timestamp > 3000) {
+            delete next[key];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // 3-second polling loop — keeps all clients in sync without WebSocket
   useEffect(() => {
     if (!id) return;
@@ -176,6 +293,16 @@ export default function IncidentRoom() {
     }
   };
 
+  const handleActionComplete = async (actionId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'DONE' ? 'TODO' : 'DONE';
+    try {
+      await client.patch(`/incidents/${id}/actions/${actionId}`, { status: newStatus });
+      await fetchIncidentSilent(); // Refresh data real time
+    } catch (err) {
+      console.error("Failed to update action status", err);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -188,9 +315,16 @@ export default function IncidentRoom() {
   }
 
   return (
-    <div className="h-screen bg-[#060606] text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-[#060606] text-white flex flex-col overflow-hidden relative"
+    >
+      {/* Background Mesh */}
+      <div className="absolute inset-0 z-0 bg-mesh opacity-80 pointer-events-none" />
+      <div className="absolute inset-0 z-0 bg-grid opacity-30 pointer-events-none mix-blend-screen" />
+      <div className="absolute inset-0 z-0 bg-gradient-to-b from-transparent to-[#03050a]/90 pointer-events-none" />
+      
       {/* Header */}
-      <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 bg-[#0a0a0a] shrink-0">
+      <header className="relative z-10 h-16 border-b border-indigo-500/20 flex items-center justify-between px-6 hud-panel shrink-0">
+
         <div className="flex items-center">
           <BackButton className="mr-4" />
           <div className="flex items-center gap-2">
@@ -202,10 +336,10 @@ export default function IncidentRoom() {
           <div className="h-4 w-px bg-white/10 mx-2" />
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-white/5 uppercase tracking-wider">
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-wider shadow-[0_0_10px_rgba(79,70,229,0.2)]">
                 {incident.roomCode}
               </span>
-              <h1 className="font-bold text-sm truncate max-w-[300px]">{incident.title}</h1>
+              <h1 className="font-bold text-sm truncate max-w-[300px] text-glow bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-300">{incident.title}</h1>
             </div>
           </div>
         </div>
@@ -249,14 +383,14 @@ export default function IncidentRoom() {
       {/* Main Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: Participants & Status */}
-        <aside className="w-64 border-r border-white/5 flex flex-col bg-[#080808] shrink-0">
+        <aside className="w-64 border-r border-indigo-500/20 flex flex-col hud-panel shrink-0 relative z-10">
           <div className="p-4 space-y-6 overflow-y-auto">
             <section>
-              <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-4 ml-1">Incident Status</h3>
+              <h3 className="text-[10px] uppercase tracking-widest font-bold text-indigo-400 mb-4 ml-1">Incident Status</h3>
               <div className="space-y-2">
                 <StatusItem icon={<ShieldAlert className="text-red-500" />} label="Severity" value={incident.severity} />
-                <StatusItem icon={<Activity className="text-blue-500" />} label="Status" value={incident.status} />
-                <StatusItem icon={<Clock className="text-emerald-500" />} label="Uptime" value="00:42:15" />
+                <StatusItem icon={<Activity className="text-indigo-400" />} label="Status" value={incident.status} />
+                <StatusItem icon={<Clock className="text-emerald-400" />} label="Uptime" value={uptime} />
               </div>
             </section>
 
@@ -305,7 +439,7 @@ export default function IncidentRoom() {
         </aside>
 
         {/* Center: Main Dashboard Tabs */}
-        <div className="flex-1 flex flex-col bg-[#060606]">
+        <div className="flex-1 flex flex-col relative z-10">
           <div className="flex items-center px-6 h-12 border-b border-white/5 gap-6">
             <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<Layout className="w-4 h-4" />} />
             <TabButton active={activeTab === "timeline"} onClick={() => setActiveTab("timeline")} label="Timeline" icon={<History className="w-4 h-4" />} />
@@ -324,7 +458,7 @@ export default function IncidentRoom() {
                   <Section title="Confirmed Facts" icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />}>
                     <div className="space-y-3">
                       {incident.facts?.map((f: any) => (
-                        <div key={f.id} className="p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs leading-relaxed">
+                        <div key={f.id} className="p-3 glass-card rounded-xl text-xs leading-relaxed">
                           {f.description}
                         </div>
                       ))}
@@ -337,7 +471,7 @@ export default function IncidentRoom() {
                   <Section title="Hypotheses" icon={<HelpCircle className="w-4 h-4 text-orange-500" />}>
                     <div className="space-y-3">
                       {incident.hypotheses?.map((h: any) => (
-                        <div key={h.id} className="p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs leading-relaxed">
+                        <div key={h.id} className="p-3 glass-card rounded-xl text-xs leading-relaxed">
                           {h.description}
                         </div>
                       ))}
@@ -365,12 +499,14 @@ export default function IncidentRoom() {
                     <div className="grid grid-cols-2 gap-4">
                       {incident.actions?.map((a: any) => (
                         <div key={a.id} className={cn(
-                          "p-4 border rounded-2xl flex items-center justify-between group transition-colors",
+                          "p-4 rounded-2xl flex items-center justify-between group transition-colors relative overflow-hidden",
                           a.isCritical
-                            ? "bg-amber-500/5 border-amber-500/30"
-                            : "bg-zinc-900/50 border-white/5"
+                            ? "bg-amber-500/10 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]"
+                            : "hud-card"
                         )}>
-                          <div className="flex items-center gap-3">
+                          {/* Animated scanline effect inside action items */}
+                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent h-[200%] animate-scanline pointer-events-none" />
+                          <div className="flex items-center gap-3 relative z-10">
                             <div className={cn(
                               "w-8 h-8 rounded-lg flex items-center justify-center",
                               a.isCritical ? "bg-amber-500/20" : "bg-zinc-800"
@@ -380,20 +516,25 @@ export default function IncidentRoom() {
                                 : <Zap className="w-4 h-4 text-blue-400" />}
                             </div>
                             <div>
-                              <p className="text-xs font-bold mb-0.5">{a.description}</p>
+                              <p className={cn("text-xs font-bold mb-0.5", a.status === 'DONE' && "line-through opacity-50")}>{a.description}</p>
                               <div className="flex items-center gap-2">
                                 <span className="text-[9px] text-zinc-500 uppercase tracking-wider">{a.owner?.name || "Unassigned"}</span>
                                 <span className={cn(
                                   "text-[9px] px-1.5 py-0.5 rounded border uppercase tracking-widest",
+                                  a.status === 'DONE' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
                                   a.isCritical
                                     ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
                                     : "bg-blue-500/10 text-blue-400 border-blue-500/10"
-                                )}>{a.isCritical ? 'CRITICAL' : a.status}</span>
+                                )}>{a.status === 'DONE' ? 'DONE' : (a.isCritical ? 'CRITICAL' : a.status)}</span>
                               </div>
                             </div>
                           </div>
-                          <button className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/5 rounded-lg transition-all">
-                            <ChevronRight className="w-4 h-4 text-zinc-500" />
+                          <button 
+                            onClick={() => handleActionComplete(a.id, a.status)}
+                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 rounded-lg transition-all"
+                            title="Toggle Status"
+                          >
+                            {a.status === 'DONE' ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <CheckCircle2 className="w-5 h-5 text-zinc-500" />}
                           </button>
                         </div>
                       ))}
@@ -435,7 +576,7 @@ export default function IncidentRoom() {
                             </div>
                             <p className="text-sm font-medium text-zinc-200">{event.description}</p>
                             {event.metadata && Object.keys(event.metadata).length > 0 && (
-                              <div className="mt-2 p-3 bg-white/[0.02] border border-white/5 rounded-xl grid grid-cols-2 gap-2">
+                              <div className="mt-2 p-3 glass-card rounded-xl grid grid-cols-2 gap-2">
                                 {Object.entries(event.metadata).map(([key, value]: [string, any]) => (
                                   <div key={key} className="flex flex-col">
                                     <span className="text-[9px] uppercase tracking-widest text-zinc-600 font-bold">{key}</span>
@@ -509,15 +650,50 @@ export default function IncidentRoom() {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Active Speakers Voice-to-Text & Animation */}
+          <div className="absolute bottom-4 left-0 right-0 px-6 pointer-events-none flex flex-col items-center gap-2 z-50">
+            <AnimatePresence>
+              {[
+                ...Object.values(activePartials),
+                ...(localTranscript ? [{ userName: "You", text: localTranscript, timestamp: Date.now() }] : [])
+              ].map((transcript, i) => (
+                <motion.div
+                  key={transcript.userName + i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl flex items-center gap-4 max-w-3xl w-full mx-auto"
+                >
+                  <div className="flex-shrink-0">
+                    <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20">
+                      <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
+                      <div className="absolute inset-0 rounded-full border border-blue-500/30 animate-ping" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-1">{transcript.userName}</span>
+                    <p className="text-sm font-medium text-white/95 leading-relaxed drop-shadow-lg">
+                      {transcript.text}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            <div className="w-full max-w-2xl mx-auto pointer-events-none mt-2">
+              <AudioVisualizer stream={vizStream} isActive={isVoiceConnected && !isMuted} />
+            </div>
+          </div>
         </div>
 
         {/* Right Sidebar: AI Transcript & Commander */}
-        <aside className="w-80 border-l border-white/5 flex flex-col bg-[#0a0a0a] shrink-0">
-          <div className="h-12 border-b border-white/5 flex items-center px-4 gap-2">
-            <MessageSquare className="w-4 h-4 text-blue-500" />
-            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">Live Intel</h3>
+        <aside className="w-80 border-l border-indigo-500/20 flex flex-col hud-panel shrink-0 relative z-10">
+          <div className="h-12 border-b border-indigo-500/20 flex items-center px-4 gap-2 bg-gradient-to-r from-indigo-500/10 to-transparent">
+            <MessageSquare className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs font-bold uppercase tracking-widest text-indigo-300 text-glow">Live Intel</h3>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col custom-scrollbar">
             <div className="flex-1" />
             <div className="space-y-4 mt-auto">
               <div className="text-center py-6">
@@ -529,23 +705,42 @@ export default function IncidentRoom() {
                 const isAI = t.userName === "AI Observer";
                 const isMe = t.userName === user?.name;
                 return (
-                <div key={t.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
-                  <div className="flex items-center gap-2 mb-1">
-                    {isAI && <TriangleAlert className="w-3 h-3 text-purple-400" />}
-                    <span className={cn("text-[10px] font-bold", isAI ? "text-purple-400" : isMe ? "text-blue-400" : "text-zinc-400")}>
-                      {isMe ? "You" : t.userName}
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  key={t.id} 
+                  className={cn("flex flex-col group", isMe ? "items-end" : "items-start")}
+                >
+                  <div className="flex items-center gap-2 mb-1.5 px-1">
+                    {!isMe && !isAI && (
+                       <div className="w-4 h-4 rounded-full bg-zinc-700 flex items-center justify-center text-[8px] font-bold text-zinc-300">
+                         {t.userName.charAt(0)}
+                       </div>
+                    )}
+                    {isAI && (
+                       <div className="w-4 h-4 rounded-full bg-purple-500/20 flex items-center justify-center">
+                         <TriangleAlert className="w-2.5 h-2.5 text-purple-400" />
+                       </div>
+                    )}
+                    <span className={cn(
+                      "text-[10px] font-bold tracking-wide", 
+                      isAI ? "text-purple-400" : isMe ? "text-blue-400 hidden" : "text-zinc-400"
+                    )}>
+                      {isMe ? "" : t.userName}
                     </span>
-                    <span className="text-[9px] text-zinc-600">{new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-[9px] text-zinc-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                      {new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
-                  <p className={cn(
-                    "text-xs leading-relaxed px-4 py-2.5 rounded-2xl max-w-[90%] shadow-sm", 
-                    isAI ? "text-purple-100 bg-purple-500/10 border border-purple-500/20 rounded-tl-none" 
-                         : isMe ? "text-white bg-blue-600 rounded-tr-none" 
-                         : "text-zinc-200 bg-zinc-800 rounded-tl-none"
+                  <div className={cn(
+                    "relative text-[13px] leading-relaxed px-4 py-2.5 max-w-[90%] shadow-sm", 
+                    isAI ? "text-purple-100 bg-purple-500/10 border border-purple-500/20 rounded-2xl rounded-tl-sm" 
+                         : isMe ? "text-white bg-blue-600 rounded-2xl rounded-tr-sm" 
+                         : "text-zinc-200 bg-zinc-800 rounded-2xl rounded-tl-sm border border-white/5"
                   )}>
                     {t.text}
-                  </p>
-                </div>
+                  </div>
+                </motion.div>
               )})}
               <div ref={chatEndRef} />
             </div>
@@ -558,29 +753,30 @@ export default function IncidentRoom() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Type a message..."
-                className="flex-1 bg-zinc-900 border border-white/10 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-blue-500 text-white placeholder:text-zinc-500"
+                className="flex-1 bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-[13px] focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 text-white placeholder:text-zinc-500 transition-all shadow-inner"
               />
               <button
                 type="submit"
                 disabled={!chatInput.trim() || isSending}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50 transition-colors"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl text-xs font-bold disabled:opacity-50 disabled:hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-600/20"
               >
                 {isSending ? '...' : 'Send'}
               </button>
             </form>
           </div>
 
-          <div className="p-4 bg-zinc-950/50 border-t border-white/5">
-            <div className="bg-blue-600/10 border border-blue-600/20 p-4 rounded-2xl">
-              <div className="flex items-center justify-between mb-2">
+          <div className="p-4 bg-black/40 backdrop-blur-xl border-t border-indigo-500/20">
+            <div className="hud-card bg-indigo-950/40 border-indigo-500/30 p-4 rounded-2xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-500/5 to-transparent animate-shimmer pointer-events-none" />
+              <div className="flex items-center justify-between mb-2 relative z-10">
                 <div className="flex items-center gap-2">
-                  <TriangleAlert className="w-4 h-4 text-blue-400" />
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-400">AI Observer</h4>
+                  <TriangleAlert className="w-4 h-4 text-indigo-400" />
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 text-glow">AI Observer</h4>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className={cn("w-1.5 h-1.5 rounded-full", isAISpeaking ? "bg-emerald-500 animate-pulse" : "bg-blue-500 animate-pulse")} />
-                  <span className="text-[9px] uppercase tracking-widest font-bold text-zinc-500">
-                    {isAISpeaking ? "Speaking" : "Listening"}
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full", isAISpeaking ? "bg-emerald-400 animate-pulse-glow" : "bg-indigo-500 animate-pulse-glow")} />
+                  <span className="text-[9px] uppercase tracking-widest font-bold text-indigo-300 font-mono">
+                    {isAISpeaking ? "SPEAKING" : "LISTENING"}
                   </span>
                 </div>
               </div>
@@ -592,8 +788,6 @@ export default function IncidentRoom() {
         </aside>
       </div>
 
-      {/* Voice Animation — shows as soon as mic is live */}
-      <AudioVisualizer stream={vizStream} isActive={isVoiceConnected && !isMuted} />
 
       {/* Critical Action Confirmation Banner (Gap 3) */}
       <AnimatePresence>
@@ -637,31 +831,7 @@ export default function IncidentRoom() {
           </motion.div>
         )}
       </AnimatePresence>
-      <AnimatePresence>
-        {localTranscript && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none max-w-3xl w-full px-6"
-          >
-            <div className="bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex items-center gap-4">
-              <div className="flex-shrink-0">
-                <div className="relative flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
-                  <div className="absolute inset-0 rounded-full border border-blue-500/30 animate-ping" />
-                </div>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-1">You</span>
-                <p className="text-lg font-medium text-white/95 leading-relaxed drop-shadow-lg">
-                  {localTranscript}
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
 
       {/* Control Bar */}
       <footer className="h-20 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between px-8 shrink-0">
@@ -740,12 +910,12 @@ export default function IncidentRoom() {
 
 function StatusItem({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) {
   return (
-    <div className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded-2xl group hover:border-white/10 transition-colors">
+    <div className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded-2xl group hover:border-indigo-500/30 hover:shadow-[0_0_15px_rgba(79,70,229,0.1)] transition-all">
       <div className="flex items-center gap-2">
         {icon}
-        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{label}</span>
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">{label}</span>
       </div>
-      <span className="text-xs font-bold text-zinc-200">{value}</span>
+      <span className="text-xs font-bold text-indigo-100 font-mono tracking-wide">{value}</span>
     </div>
   );
 }
@@ -768,7 +938,7 @@ function TabButton({ active, onClick, label, icon }: { active: boolean, onClick:
 function Section({ title, icon, children, className }: { title: string, icon: React.ReactNode, children: React.ReactNode, className?: string }) {
   return (
     <section className={cn("space-y-4", className)}>
-      <h3 className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 flex items-center gap-2 ml-1">
+      <h3 className="text-[10px] uppercase tracking-widest font-bold text-indigo-300 flex items-center gap-2 ml-1 text-glow">
         {icon}
         {title}
       </h3>

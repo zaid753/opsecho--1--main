@@ -114,7 +114,7 @@ export default function SettingsPage() {
 
         {/* Main Content Area */}
         <div className="md:col-span-3">
-          <div className="bg-white dark:bg-zinc-900/50 backdrop-blur-xl border border-zinc-200 dark:border-white/5 rounded-2xl p-6 min-h-[500px] relative overflow-hidden shadow-xl dark:shadow-none">
+          <div className="glass-panel rounded-2xl p-6 min-h-[500px] relative overflow-hidden">
             <AnimatePresence mode="wait">
               {activeTab === "profile" && (
                 <motion.div
@@ -153,7 +153,7 @@ export default function SettingsPage() {
                           type="text"
                           value={profileData.name}
                           onChange={(e) => setProfileData({...profileData, name: e.target.value})}
-                          className="w-full bg-zinc-50 dark:bg-black/50 border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-zinc-900 dark:text-white"
+                          className="w-full bg-zinc-50 dark:bg-black/40 border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 transition-all text-zinc-900 dark:text-white"
                         />
                       </div>
                       <div className="space-y-2">
@@ -162,7 +162,7 @@ export default function SettingsPage() {
                           type="email"
                           value={profileData.email}
                           onChange={(e) => setProfileData({...profileData, email: e.target.value})}
-                          className="w-full bg-zinc-100 dark:bg-black/50 border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-zinc-500 dark:text-zinc-400"
+                          className="w-full bg-zinc-100 dark:bg-black/40 border border-zinc-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 transition-all text-zinc-500 dark:text-zinc-400"
                           disabled
                         />
                       </div>
@@ -215,27 +215,27 @@ export default function SettingsPage() {
                   <div className="space-y-4">
                     <h3 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest border-b border-zinc-200 dark:border-white/5 pb-2">Notifications</h3>
                     
-                    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5">
+                    <div className="flex items-center justify-between p-4 glass-card rounded-xl">
                       <div>
                         <p className="font-bold text-sm">Email Notifications</p>
                         <p className="text-xs text-zinc-500 mt-1">Receive email alerts for critical incidents you are assigned to.</p>
                       </div>
                       <button 
                         onClick={() => setPreferences({...preferences, emailNotifications: !preferences.emailNotifications})}
-                        className={clsx("w-12 h-6 rounded-full transition-colors relative", preferences.emailNotifications ? "bg-blue-600" : "bg-zinc-700")}
+                        className={clsx("w-12 h-6 rounded-full transition-colors relative", preferences.emailNotifications ? "bg-indigo-600 shadow-[0_0_10px_rgba(79,70,229,0.5)]" : "bg-zinc-700")}
                       >
                         <div className={clsx("w-4 h-4 rounded-full bg-white absolute top-1 transition-all", preferences.emailNotifications ? "left-7" : "left-1")} />
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-black/20 rounded-xl border border-zinc-200 dark:border-white/5">
+                    <div className="flex items-center justify-between p-4 glass-card rounded-xl">
                       <div>
                         <p className="font-bold text-sm">Push Notifications</p>
                         <p className="text-xs text-zinc-500 mt-1">Receive browser push notifications for updates.</p>
                       </div>
                       <button 
                         onClick={() => setPreferences({...preferences, pushNotifications: !preferences.pushNotifications})}
-                        className={clsx("w-12 h-6 rounded-full transition-colors relative", preferences.pushNotifications ? "bg-blue-600" : "bg-zinc-700")}
+                        className={clsx("w-12 h-6 rounded-full transition-colors relative", preferences.pushNotifications ? "bg-indigo-600 shadow-[0_0_10px_rgba(79,70,229,0.5)]" : "bg-zinc-700")}
                       >
                         <div className={clsx("w-4 h-4 rounded-full bg-white absolute top-1 transition-all", preferences.pushNotifications ? "left-7" : "left-1")} />
                       </button>

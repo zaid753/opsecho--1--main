@@ -17,7 +17,8 @@ import { encode } from '../lib/audioUtils';
 export const useGeminiSTT = (
   incidentId: string | undefined,
   isEnabled: boolean,
-  agoraTrack: MediaStreamTrack | null
+  agoraTrack: MediaStreamTrack | null,
+  socket: any
 ) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -112,6 +113,11 @@ export const useGeminiSTT = (
             if (text && text !== lastTranscriptTextRef.current) {
               lastTranscriptTextRef.current = text;
               setTranscript(text);
+
+              // Emit partial transcript for others to see in real-time
+              if (socket) {
+                socket.emit("TRANSCRIPT_PARTIAL", { incidentId, text });
+              }
 
               // POST to REST API — Vercel-compatible, persists to DB, triggers AI
               try {

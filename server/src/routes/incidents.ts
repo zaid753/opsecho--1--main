@@ -1,6 +1,8 @@
 import express from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
+
+import { postToSlack } from "../services/slack";
 import crypto from "crypto";
 import { processTranscript } from "../services/aiProcessor";
 import { generateIncidentSummary } from "../services/gemini";
@@ -223,7 +225,7 @@ router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
 
     // Trigger AI analysis in the background (fire-and-forget, do not await)
     const io = req.app.get("io");
-    processTranscript(io, null, id, text.trim(), userName, userId).catch(console.error);
+    processTranscript(io, null, id, text.trim(), userName, userId, transcript).catch(console.error);
 
   } catch (error) {
     console.error("Chat message error:", error);
@@ -260,6 +262,11 @@ router.patch("/:id/actions/:actionId", authenticate, async (req: AuthRequest, re
         metadata: { confirmedBy: userId, actionId }
       }
     });
+
+    // Send to Slack if integration exists
+    if (status === 'IN_PROGRESS') {
+      await postToSlack(userId, id, action.description);
+    }
 
     res.json(action);
   } catch (error) {
