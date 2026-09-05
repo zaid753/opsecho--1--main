@@ -2,6 +2,8 @@ import express from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
 import crypto from "crypto";
+import { processTranscript } from "../services/aiProcessor";
+import { generateIncidentSummary } from "../services/gemini";
 
 const router = express.Router();
 
@@ -174,6 +176,7 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
         hypotheses: true,
         decisions: true,
         timeline: { orderBy: { timestamp: "asc" } },
+        transcripts: { orderBy: { timestamp: "asc" } },
       },
     });
 
@@ -192,7 +195,41 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-import { generateIncidentSummary } from "../services/gemini";
+// Send a chat message (typed or voice-to-text) — REST-based, Vercel-compatible.
+// Persists the transcript and asynchronously triggers AI analysis.
+router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  const userId = req.user?.id;
+  const userName = req.user?.name || 'Unknown';
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!text || !text.trim()) return res.status(400).json({ error: "Empty message" });
+
+  try {
+    // Verify participant
+    const participant = await prisma.incidentParticipant.findUnique({
+      where: { incidentId_userId: { incidentId: id, userId } },
+    });
+    if (!participant) return res.status(403).json({ error: "Forbidden" });
+
+    // Save transcript to DB
+    const transcript = await prisma.transcript.create({
+      data: { incidentId: id, userId, userName, text: text.trim() },
+    });
+
+    // Respond immediately with the new transcript
+    res.json(transcript);
+
+    // Trigger AI analysis in the background (fire-and-forget, do not await)
+    const io = req.app.get("io");
+    processTranscript(io, null, id, text.trim(), userName, userId).catch(console.error);
+
+  } catch (error) {
+    console.error("Chat message error:", error);
+    if (!res.headersSent) res.status(500).json({ error: "Failed to send message" });
+  }
+});
 
 // Resolve Incident
 router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {

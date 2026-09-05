@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   Users, MessageSquare, ShieldAlert, Zap, 
@@ -8,7 +8,6 @@ import {
   FileText, History, Layout
 } from "lucide-react";
 import { useAgoraRoom } from "../hooks/useAgoraRoom";
-import { useSocket } from "../context/SocketContext";
 import { useGeminiSTT } from "../hooks/useGeminiSTT";
 import AudioVisualizer from "../components/AudioVisualizer";
 import { useAIAudioParticipant } from "../hooks/useAIAudioParticipant";
@@ -32,18 +31,27 @@ export default function IncidentRoom() {
   const [incident, setIncident] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
-  const [partialTranscript, setPartialTranscript] = useState<{userId: string, userName: string, text: string} | null>(null);
   const [chatInput, setChatInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   
   const chatEndRef = React.useRef<HTMLDivElement>(null);
 
-  const socket = useSocket();
-
-  const handleSendChat = (e: React.FormEvent) => {
+  // REST-based chat — works on Vercel without persistent WebSocket
+  const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim() || !socket || !id) return;
-    socket.emit("TRANSCRIPT_FINAL", { incidentId: id, text: chatInput });
+    if (!chatInput.trim() || !id || isSending) return;
+    const text = chatInput.trim();
     setChatInput("");
+    setIsSending(true);
+    try {
+      await client.post(`/incidents/${id}/chat`, { text });
+      // Immediately refresh to show the new message
+      await fetchIncidentSilent();
+    } catch (err) {
+      console.error("Failed to send message", err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const scrollToBottom = () => {
@@ -58,6 +66,7 @@ export default function IncidentRoom() {
     remoteUsers,
     localVolume,
     remoteVolumes,
+    localMediaTrack,
     error: voiceError,
     permissionDenied,
     joinChannel, 
@@ -65,73 +74,50 @@ export default function IncidentRoom() {
     toggleMute 
   } = useAgoraRoom(id);
 
-  const { isListening: isSTTActive, transcript: localTranscript, mediaStream } = useGeminiSTT(id, isVoiceConnected && !isMuted);
+  // Pass Agora's AEC-processed track to Gemini STT — eliminates echo
+  const { isListening: isSTTActive, transcript: localTranscript, mediaStream } = useGeminiSTT(
+    id,
+    isVoiceConnected && !isMuted,
+    localMediaTrack
+  );
   const isSpeaking = localVolume > 5;
   
   // AI Voice Participant (Listens for AI_SPEAK and publishes to Agora)
   const { isAISpeaking } = useAIAudioParticipant(id, isSpeaking);
 
-  useEffect(() => {
-    if (id) {
-      fetchIncident();
-      if (socket) {
-        socket.emit("join-incident", id);
-        
-        socket.on("incident:updated", (updatedIncident) => {
-          if (updatedIncident.id === id) {
-            setIncident(updatedIncident);
-          }
-        });
-
-        socket.on("TRANSCRIPT_NEW", (newTranscript) => {
-          if (newTranscript.incidentId === id) {
-            setIncident((prev: any) => {
-              if (!prev) return prev;
-              if (prev.transcripts?.find((t: any) => t.id === newTranscript.id)) return prev;
-              return {
-                ...prev,
-                transcripts: [newTranscript, ...(prev.transcripts || [])]
-              };
-            });
-            // Clear partial when final arrives
-            setPartialTranscript(null);
-          }
-        });
-
-        socket.on("TRANSCRIPT_PARTIAL", (data: {userId: string, userName: string, text: string}) => {
-          setPartialTranscript(data);
-          // Auto clear after 3 seconds
-          setTimeout(() => {
-            setPartialTranscript((prev) => prev?.userId === data.userId ? null : prev);
-          }, 3000);
-        });
-
-        return () => {
-          socket.emit("leave-incident", id);
-          socket.off("incident:updated");
-          socket.off("TRANSCRIPT_NEW");
-          socket.off("TRANSCRIPT_PARTIAL");
-        };
-      }
-    }
-  }, [id, socket]);
-
-  useEffect(() => {
-    // Scroll chat to bottom whenever transcripts change
-    scrollToBottom();
-  }, [incident?.transcripts?.length]);
-
-  const fetchIncident = async () => {
+  // Fetch incident data — used on load and by the polling loop
+  const fetchIncident = useCallback(async () => {
     try {
       const res = await client.get(`/incidents/${id}`);
       setIncident(res.data);
-    } catch (err) {
-      console.error("Failed to fetch incident", err);
-      navigate("/dashboard");
+    } catch (err: any) {
+      if (err?.response?.status === 403 || err?.response?.status === 401) {
+        navigate("/dashboard");
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  // Silent refresh (no loading state) used after sending chat messages
+  const fetchIncidentSilent = useCallback(async () => {
+    try {
+      const res = await client.get(`/incidents/${id}`);
+      setIncident(res.data);
+    } catch { /* ignore */ }
+  }, [id]);
+
+  // Initial load
+  useEffect(() => {
+    if (id) fetchIncident();
+  }, [id, fetchIncident]);
+
+  // 3-second polling loop — keeps all clients in sync without WebSocket
+  useEffect(() => {
+    if (!id) return;
+    const interval = setInterval(fetchIncidentSilent, 3000);
+    return () => clearInterval(interval);
+  }, [id, fetchIncidentSilent]);
 
   const [isResolving, setIsResolving] = useState(false);
 
@@ -502,15 +488,15 @@ export default function IncidentRoom() {
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Type a message manually..."
+                placeholder="Type a message..."
                 className="flex-1 bg-zinc-900 border border-white/10 rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-blue-500 text-white placeholder:text-zinc-500"
               />
               <button
                 type="submit"
-                disabled={!chatInput.trim()}
+                disabled={!chatInput.trim() || isSending}
                 className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50 transition-colors"
               >
-                Send
+                {isSending ? '...' : 'Send'}
               </button>
             </form>
           </div>
@@ -537,10 +523,10 @@ export default function IncidentRoom() {
         </aside>
       </div>
 
-      {/* Live Voice-to-Text Subtitles */}
+      {/* Voice-to-Text AudioVisualizer overlay */}
       <AudioVisualizer stream={mediaStream} isActive={isSTTActive} />
       <AnimatePresence>
-        {(localTranscript || partialTranscript) && (
+        {localTranscript && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -555,11 +541,9 @@ export default function IncidentRoom() {
                 </div>
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-1">
-                  {partialTranscript ? partialTranscript.userName : "You"}
-                </span>
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-1">You</span>
                 <p className="text-lg font-medium text-white/95 leading-relaxed drop-shadow-lg">
-                  {localTranscript || partialTranscript?.text}
+                  {localTranscript}
                 </p>
               </div>
             </div>

@@ -8,6 +8,8 @@ import client from '../api/client';
 
 export const useAgoraRoom = (incidentId: string | undefined) => {
   const [localAudioTrack, setLocalAudioTrack] = useState<IMicrophoneAudioTrack | null>(null);
+  // Raw MediaStreamTrack exposed so Gemini STT can reuse Agora's AEC-processed stream
+  const [localMediaTrack, setLocalMediaTrack] = useState<MediaStreamTrack | null>(null);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -114,8 +116,11 @@ export const useAgoraRoom = (incidentId: string | undefined) => {
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true });
       localAudioTrackRef.current = audioTrack;
       setLocalAudioTrack(audioTrack);
+      // Expose the raw MediaStreamTrack so Gemini STT can reuse the AEC-processed stream
+      const rawTrack = audioTrack.getMediaStreamTrack();
+      setLocalMediaTrack(rawTrack);
       await agoraClient.publish(audioTrack);
-      
+
       setIsConnected(true);
     } catch (err: any) {
       console.error('Agora Join Error:', err);
@@ -146,6 +151,7 @@ export const useAgoraRoom = (incidentId: string | undefined) => {
         localAudioTrackRef.current = null;
       }
       setLocalAudioTrack(null);
+      setLocalMediaTrack(null);
       
       if (agoraClientRef.current) {
         agoraClientRef.current.removeAllListeners();
@@ -190,6 +196,7 @@ export const useAgoraRoom = (incidentId: string | undefined) => {
     remoteUsers,
     localVolume,
     remoteVolumes,
+    localMediaTrack,
     error,
     permissionDenied,
     joinChannel,
