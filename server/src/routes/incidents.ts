@@ -222,14 +222,14 @@ router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
       data: { incidentId: id, userId, userName, text: text.trim() },
     });
 
-    // Respond immediately with the new transcript
+    // Respond immediately with the new transcript to the client so UI is unblocked
     res.json(transcript);
 
-    // Trigger AI analysis in the background (fire-and-forget, do not await)
-    // Pass through the source so the AI knows if this was voice or typed chat
+    // Trigger AI analysis in the background
+    // Await it to ensure Vercel Serverless Function doesn't terminate before it finishes
     const io = req.app.get("io");
     const transcriptSource: 'voice' | 'chat' = source === 'voice' ? 'voice' : 'chat';
-    processTranscript(io, null, id, text.trim(), userName, userId, transcript, transcriptSource).catch(console.error);
+    await processTranscript(io, null, id, text.trim(), userName, userId, transcript, transcriptSource);
 
   } catch (error) {
     console.error("Chat message error:", error);
