@@ -25,8 +25,8 @@ export default function LandingPage() {
           </div>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-500 dark:text-zinc-400">
             <a href="#features" className="hover:text-zinc-900 dark:hover:text-white transition-colors">Features</a>
-            <a href="#how-it-works" className="hover:text-zinc-900 dark:hover:text-white transition-colors">How it Works</a>
-            <a href="#integrations" className="hover:text-zinc-900 dark:hover:text-white transition-colors">Integrations</a>
+            <Link to="/how-it-works" className="hover:text-zinc-900 dark:hover:text-white transition-colors">How it Works</Link>
+            <Link to="/integrations" className="hover:text-zinc-900 dark:hover:text-white transition-colors">Integrations</Link>
           </div>
           <div className="flex items-center gap-4">
             <button 
