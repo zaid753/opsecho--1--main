@@ -164,6 +164,8 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   try {
+    const isSlim = req.query.slim === 'true';
+
     const incident = await prisma.incident.findUnique({
       where: { id },
       include: {
@@ -177,8 +179,8 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
         facts: true,
         hypotheses: true,
         decisions: true,
-        timeline: { orderBy: { timestamp: "asc" } },
-        transcripts: { orderBy: { timestamp: "asc" } },
+        timeline: isSlim ? false : { orderBy: { timestamp: "asc" } },
+        transcripts: isSlim ? false : { orderBy: { timestamp: "desc" }, take: 50 },
       },
     });
 

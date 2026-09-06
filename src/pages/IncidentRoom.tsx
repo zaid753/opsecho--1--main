@@ -167,9 +167,18 @@ export default function IncidentRoom() {
   // Silent refresh (no loading state) used after sending chat messages
   const fetchIncidentSilent = useCallback(async () => {
     try {
-      const res = await client.get(`/incidents/${id}`);
+      const res = await client.get(`/incidents/${id}?slim=true`);
       const updated = res.data;
-      setIncident(updated);
+      
+      setIncident((prev: any) => {
+        if (!prev) return updated;
+        return {
+          ...updated,
+          // Preserve full arrays that aren't loaded in slim mode
+          timeline: prev.timeline || [],
+          transcripts: prev.transcripts || [],
+        };
+      });
 
       // ── Critical Action Confirmation (Gap 3) ─────────────────────────────────
       // Surface any newly-detected critical actions that haven't been acknowledged
@@ -584,7 +593,7 @@ export default function IncidentRoom() {
                                 {new Date(item.timestamp).toLocaleTimeString()}
                               </span>
                             </div>
-                            <p className="text-[13px] font-semibold leading-relaxed pl-3 pr-1" style={{ color: '#1a1a2e' }}>{item.text}</p>
+                            <p className="text-[13px] font-semibold leading-relaxed pl-3 pr-1 text-zinc-900 dark:text-zinc-100">{item.text}</p>
                             <p className="text-[10px] text-zinc-500 mt-2 font-medium tracking-wide uppercase pl-3">{item.speaker}</p>
                           </div>
                         );
