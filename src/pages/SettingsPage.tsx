@@ -8,7 +8,17 @@ import { clsx } from "clsx";
 export default function SettingsPage() {
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
+  
+  // Read query parameters
   const [activeTab, setActiveTab] = useState("profile");
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("integration") || params.get("error")) {
+      setActiveTab("integrations");
+    }
+  }, []);
+
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
