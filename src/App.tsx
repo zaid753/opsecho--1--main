@@ -13,6 +13,8 @@ import IncidentHistory from "./pages/IncidentHistory";
 import AdminDashboard from "./pages/AdminDashboard";
 import SettingsPage from "./pages/SettingsPage";
 import DashboardLayout from "./layouts/DashboardLayout";
+import HowItWorksPage from "./pages/HowItWorksPage";
+import IntegrationsPage from "./pages/IntegrationsPage";
 
 
 function AppRoutes() {
@@ -30,6 +32,8 @@ function AppRoutes() {
     <>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
+        <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <LoginPage />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/dashboard" /> : <RegisterPage />} />
         <Route path="/join" element={<JoinPage />} />
