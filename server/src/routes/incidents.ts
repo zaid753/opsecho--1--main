@@ -2,7 +2,7 @@ import express from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
 
-import { postToSlack } from "../services/slack";
+import { postToSlack, postResolutionToSlack } from "../services/slack";
 import crypto from "crypto";
 import { processTranscript } from "../services/aiProcessor";
 import { generateIncidentSummary } from "../services/gemini";
@@ -330,7 +330,10 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
       },
     });
 
-    // 4. Broadcast the final resolved state
+    // 4. Send to Slack if integration exists
+    await postResolutionToSlack(userId, id, summary);
+
+    // 5. Broadcast the final resolved state
     const io = req.app.get("io");
     io.to(`incident:${id}`).emit("incident:updated", incident);
 
