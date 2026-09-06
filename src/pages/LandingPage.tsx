@@ -416,7 +416,6 @@ export default function LandingPage() {
             <a href="#" className="hover:text-white">Privacy</a>
             <a href="#" className="hover:text-white">Security</a>
             <a href="#" className="hover:text-white">Docs</a>
-            <Link to="/admin" className="text-zinc-800 hover:text-zinc-600 transition-colors">Admin</Link>
           </div>
           <p className="text-sm text-zinc-500">© 2026 OpsEcho Inc. All rights reserved.</p>
         </div>

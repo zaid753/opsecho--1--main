@@ -207,9 +207,69 @@ export default function IncidentRoom() {
     if (id) fetchIncident();
   }, [id, fetchIncident]);
 
+  // Track whether the voice call has ended (user hung up)
+  const callEndedRef = useRef(false);
+  const frozenUptimeRef = useRef<string | null>(null);
+
+  // Detect when user hangs up — freeze the uptime at that moment
+  useEffect(() => {
+    if (!incident?.createdAt) return;
+
+    // If user was connected and just disconnected, freeze the timer
+    if (!isVoiceConnected && callEndedRef.current) {
+      // Already frozen, nothing to do
+      return;
+    }
+
+    if (isVoiceConnected) {
+      // User joined the call — unfreeze
+      callEndedRef.current = false;
+      frozenUptimeRef.current = null;
+    }
+  }, [isVoiceConnected, incident?.createdAt]);
+
+  // When leaving the channel, mark the call as ended and snapshot the time
+  const handleHangUp = useCallback(() => {
+    if (incident?.createdAt) {
+      const start = new Date(incident.createdAt).getTime();
+      const diff = Date.now() - start;
+      if (diff >= 0) {
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        frozenUptimeRef.current = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+        setUptime(frozenUptimeRef.current);
+      }
+      callEndedRef.current = true;
+    }
+    leaveChannel();
+  }, [incident?.createdAt, leaveChannel]);
+
   // Real-time Uptime Calculation
   useEffect(() => {
     if (!incident?.createdAt) return;
+
+    // If incident is resolved, freeze at the duration from createdAt to updatedAt
+    if (incident.status === 'RESOLVED') {
+      const start = new Date(incident.createdAt).getTime();
+      const end = incident.updatedAt ? new Date(incident.updatedAt).getTime() : Date.now();
+      const diff = end - start;
+      if (diff >= 0) {
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        setUptime(
+          `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+        );
+      }
+      return; // No interval needed — resolved incidents show a frozen time
+    }
+
+    // If user has hung up, keep showing the frozen time
+    if (callEndedRef.current && frozenUptimeRef.current) {
+      setUptime(frozenUptimeRef.current);
+      return; // No interval needed — call ended
+    }
 
     // Run once immediately so it doesn't wait 1s for the first tick
     const updateTimer = () => {
@@ -230,7 +290,7 @@ export default function IncidentRoom() {
 
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [incident?.createdAt, incident?.status, incident?.updatedAt]);
+  }, [incident?.createdAt, incident?.status, incident?.updatedAt, isVoiceConnected]);
 
   // Socket setup for real-time chat and updates
   useEffect(() => {
@@ -545,7 +605,7 @@ export default function IncidentRoom() {
                   )}
                 </button>
                 <button 
-                  onClick={leaveChannel}
+                  onClick={handleHangUp}
                   className="p-3 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-600 dark:text-red-100 rounded-xl transition-all"
                   title="Hang Up"
                 >
