@@ -8,6 +8,170 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model User {
+  id                   String                @id @default(uuid())
+  name                 String
+  email                String                @unique
+  passwordHash         String
+  role                 Role                  @default(OBSERVER)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  actions              Action[]
+  approvalsGiven       Approval[]            @relation("ApprovedBy")
+  incidentsCreated     Incident[]            @relation("CreatedBy")
+  incidentParticipants IncidentParticipant[]
+  integrations         Integration[]
+  transcripts          Transcript[]
+}
+
+model Incident {
+  id           String                @id @default(uuid())
+  roomCode     String                @unique
+  title        String
+  description  String?
+  severity     String
+  status       IncidentStatus        @default(CREATED)
+  service      String?
+  environment  String?
+  impact       String?
+  createdById  String
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  summary      String?
+  actions      Action[]
+  approvals    Approval[]
+  conflicts    Conflict[]
+  decisions    Decision[]
+  facts        Fact[]
+  hypotheses   Hypothesis[]
+  createdBy    User                  @relation("CreatedBy", fields: [createdById], references: [id])
+  participants IncidentParticipant[]
+  risks        Risk[]
+  timeline     TimelineEvent[]
+  transcripts  Transcript[]
+}
+
+model IncidentParticipant {
+  id         String   @id @default(uuid())
+  incidentId String
+  userId     String
+  joinedAt   DateTime @default(now())
+  incident   Incident @relation(fields: [incidentId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@unique([incidentId, userId])
+}
+
+model Transcript {
+  id         String   @id @default(uuid())
+  incidentId String
+  userId     String?
+  userName   String?
+  text       String
+  timestamp  DateTime @default(now())
+  incident   Incident @relation(fields: [incidentId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
+}
+
+model Fact {
+  id          String   @id @default(uuid())
+  incidentId  String
+  description String
+  source      String?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Hypothesis {
+  id          String   @id @default(uuid())
+  incidentId  String
+  description String
+  proposer    String?
+  evidence    String?
+  status      String?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Decision {
+  id          String   @id @default(uuid())
+  incidentId  String
+  description String
+  decider     String?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Action {
+  id          String       @id @default(uuid())
+  incidentId  String
+  ownerId     String?
+  description String
+  status      ActionStatus @default(TODO)
+  isCritical  Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  incident    Incident     @relation(fields: [incidentId], references: [id])
+  owner       User?        @relation(fields: [ownerId], references: [id])
+  approvals   Approval[]
+}
+
+model TimelineEvent {
+  id          String   @id @default(uuid())
+  incidentId  String
+  type        String
+  description String
+  metadata    Json?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Conflict {
+  id          String   @id @default(uuid())
+  incidentId  String
+  description String
+  resolution  String?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Risk {
+  id          String   @id @default(uuid())
+  incidentId  String
+  description String
+  mitigation  String?
+  timestamp   DateTime @default(now())
+  incident    Incident @relation(fields: [incidentId], references: [id])
+}
+
+model Approval {
+  id            String         @id @default(uuid())
+  incidentId    String
+  actionId      String
+  requestedById String
+  approvedById  String?
+  status        ApprovalStatus @default(PENDING)
+  reason        String?
+  timestamp     DateTime       @default(now())
+  action        Action         @relation(fields: [actionId], references: [id])
+  approvedBy    User?          @relation("ApprovedBy", fields: [approvedById], references: [id])
+  incident      Incident       @relation(fields: [incidentId], references: [id])
+}
+
+model Integration {
+  id           String   @id @default(uuid())
+  userId       String
+  provider     String
+  accessToken  String
+  refreshToken String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, provider])
+}
+
 enum Role {
   BACKEND_ENGINEER
   FRONTEND_ENGINEER
@@ -40,180 +204,4 @@ enum ApprovalStatus {
   PENDING
   APPROVED
   REJECTED
-}
-
-model User {
-  id            String    @id @default(uuid())
-  name          String
-  email         String    @unique
-  passwordHash  String
-  role          Role      @default(OBSERVER)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  incidentsCreated      Incident[]            @relation("CreatedBy")
-  incidentParticipants  IncidentParticipant[]
-  actions               Action[]
-  approvalsGiven        Approval[]            @relation("ApprovedBy")
-  transcripts           Transcript[]
-  integrations          Integration[]
-}
-
-model Incident {
-  id          String         @id @default(uuid())
-  roomCode    String         @unique
-  title       String
-  description String?
-  summary     String?
-  severity    String
-  status      IncidentStatus @default(CREATED)
-  service     String?
-  environment String?
-  impact      String?
-  createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  createdBy     User                  @relation("CreatedBy", fields: [createdById], references: [id])
-  participants  IncidentParticipant[]
-  transcripts   Transcript[]
-  facts         Fact[]
-  hypotheses    Hypothesis[]
-  decisions     Decision[]
-  actions       Action[]
-  timeline      TimelineEvent[]
-  conflicts     Conflict[]
-  risks         Risk[]
-  approvals     Approval[]
-}
-
-model IncidentParticipant {
-  id          String   @id @default(uuid())
-  incidentId  String
-  userId      String
-  joinedAt    DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-  user        User     @relation(fields: [userId], references: [id])
-
-  @@unique([incidentId, userId])
-}
-
-model Transcript {
-  id          String   @id @default(uuid())
-  incidentId  String
-  userId      String?
-  userName    String?
-  text        String
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-  user        User?    @relation(fields: [userId], references: [id])
-}
-
-model Fact {
-  id          String   @id @default(uuid())
-  incidentId  String
-  description String
-  source      String?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Hypothesis {
-  id          String   @id @default(uuid())
-  incidentId  String
-  description String
-  proposer    String?
-  evidence    String?
-  status      String?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Decision {
-  id          String   @id @default(uuid())
-  incidentId  String
-  description String
-  decider     String?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Action {
-  id          String       @id @default(uuid())
-  incidentId  String
-  ownerId     String?
-  description String
-  status      ActionStatus @default(TODO)
-  isCritical  Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-  owner       User?    @relation(fields: [ownerId], references: [id])
-  approvals   Approval[]
-}
-
-model TimelineEvent {
-  id          String   @id @default(uuid())
-  incidentId  String
-  type        String
-  description String
-  metadata    Json?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Conflict {
-  id          String   @id @default(uuid())
-  incidentId  String
-  description String
-  resolution  String?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Risk {
-  id          String   @id @default(uuid())
-  incidentId  String
-  description String
-  mitigation  String?
-  timestamp   DateTime @default(now())
-
-  incident    Incident @relation(fields: [incidentId], references: [id])
-}
-
-model Approval {
-  id            String         @id @default(uuid())
-  incidentId    String
-  actionId      String
-  requestedById String
-  approvedById  String?
-  status        ApprovalStatus @default(PENDING)
-  reason        String?
-  timestamp     DateTime       @default(now())
-
-  incident      Incident @relation(fields: [incidentId], references: [id])
-  action        Action   @relation(fields: [actionId], references: [id])
-  approvedBy    User?    @relation("ApprovedBy", fields: [approvedById], references: [id])
-}
-
-model Integration {
-  id           String   @id @default(uuid())
-  userId       String
-  provider     String   // "SLACK" or "JIRA"
-  accessToken  String
-  refreshToken String?
-  metadata     Json?    
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  user         User     @relation(fields: [userId], references: [id])
-  @@unique([userId, provider])
 }
