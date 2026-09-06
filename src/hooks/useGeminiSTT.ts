@@ -29,10 +29,15 @@ export const useGeminiSTT = (
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const isSessionActiveRef = useRef(false);
   const lastTranscriptTextRef = useRef('');
+  const transcriptTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const stopListening = useCallback(() => {
     isSessionActiveRef.current = false;
     setIsListening(false);
+
+    if (transcriptTimeoutRef.current) {
+      clearTimeout(transcriptTimeoutRef.current);
+    }
 
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
@@ -119,25 +124,32 @@ export const useGeminiSTT = (
                 socket.emit("TRANSCRIPT_PARTIAL", { incidentId, text });
               }
 
-              // POST to REST API — Vercel-compatible, persists to DB, triggers AI
-              try {
-                const token = localStorage.getItem('token');
-                await fetch(`/api/incidents/${incidentId}/chat`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({ text, source: 'voice' }),
-                });
-              } catch (err) {
-                console.error('[Gemini STT] Failed to POST transcript:', err);
+              // Debounce POSTing to the database to prevent spamming partial words
+              if (transcriptTimeoutRef.current) {
+                clearTimeout(transcriptTimeoutRef.current);
               }
+              
+              transcriptTimeoutRef.current = setTimeout(async () => {
+                const finalText = lastTranscriptTextRef.current;
+                if (!finalText || !isSessionActiveRef.current) return;
+                
+                try {
+                  const token = localStorage.getItem('token');
+                  await fetch(`/api/incidents/${incidentId}/chat`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ text: finalText, source: 'voice' }),
+                  });
+                } catch (err) {
+                  console.error('[Gemini STT] Failed to POST transcript:', err);
+                }
 
-              // Auto-clear the subtitle overlay after 2 seconds
-              setTimeout(() => {
-                setTranscript(t => (t === text ? '' : t));
-              }, 2000);
+                // Clear the subtitle overlay after posting
+                setTranscript(t => (t === finalText ? '' : t));
+              }, 500); // 0.5 seconds of silence for faster chat messages
             }
           },
 

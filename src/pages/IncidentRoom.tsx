@@ -164,8 +164,7 @@ export default function IncidentRoom() {
     // Run once immediately so it doesn't wait 1s for the first tick
     const updateTimer = () => {
       const start = new Date(incident.createdAt).getTime();
-      const end = incident.status === "RESOLVED" && incident.updatedAt ? new Date(incident.updatedAt).getTime() : Date.now();
-      const diff = end - start;
+      const diff = Date.now() - start;
       if (diff < 0) return;
       
       const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -178,9 +177,6 @@ export default function IncidentRoom() {
     };
     
     updateTimer();
-    
-    // If it's resolved, the time is fixed, no need to run the interval
-    if (incident.status === "RESOLVED") return;
 
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
@@ -201,7 +197,8 @@ export default function IncidentRoom() {
         
         return {
           ...prev,
-          transcripts: [newTranscript, ...(prev.transcripts || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          // API returns desc order (newest first), so prepend the new transcript
+          transcripts: [newTranscript, ...(prev.transcripts || [])],
         };
       });
       
@@ -360,9 +357,6 @@ export default function IncidentRoom() {
             </div>
             <span className="text-xs text-zinc-500 font-medium">{incident.participants.length} Active</span>
           </div>
-          <button className="p-2 hover:bg-white/5 rounded-lg transition-colors">
-            <Share2 className="w-5 h-5 text-zinc-400" />
-          </button>
           {incident.status !== 'RESOLVED' && (
             <button 
               onClick={handleResolve}
@@ -435,6 +429,67 @@ export default function IncidentRoom() {
                 )})}
               </div>
             </section>
+          </div>
+
+          <div className="mt-auto p-4 border-t border-indigo-500/20 bg-black/20">
+            {!isVoiceConnected ? (
+              <button 
+                onClick={joinChannel}
+                disabled={isJoining}
+                className={cn(
+                  "w-full py-3 font-bold rounded-xl flex items-center justify-center gap-2 transition-all text-sm",
+                  isJoining ? "bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20"
+                )}
+              >
+                {isJoining ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4" />
+                    Join Voice Room
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={toggleMute}
+                  className={cn(
+                    "flex-1 p-3 rounded-xl transition-all border flex items-center justify-center gap-2 font-bold text-sm",
+                    isMuted ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-white/5 border-white/10 text-white hover:bg-white/10"
+                  )}
+                >
+                  {isMuted ? (
+                    <>
+                      <MicOff className="w-4 h-4" />
+                      Muted
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4" />
+                      Mic On
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={leaveChannel}
+                  className="p-3 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-100 rounded-xl transition-all"
+                  title="Hang Up"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            
+            {voiceError && (
+              <div className="mt-3 flex items-center gap-2 text-red-400 text-xs bg-red-400/10 px-3 py-2 rounded-lg border border-red-400/20">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {voiceError}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -833,76 +888,7 @@ export default function IncidentRoom() {
       </AnimatePresence>
 
 
-      {/* Control Bar */}
-      <footer className="h-20 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between px-8 shrink-0">
-        <div className="flex items-center gap-4">
-          {!isVoiceConnected ? (
-            <button 
-              onClick={joinChannel}
-              disabled={isJoining}
-              className={cn(
-                "px-6 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg",
-                isJoining ? "bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20"
-              )}
-            >
-              {isJoining ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Mic className="w-5 h-5" />
-                  Join Voice Room
-                </>
-              )}
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={toggleMute}
-                className={cn(
-                  "p-3 rounded-xl transition-all border",
-                  isMuted ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-white/5 border-white/10 text-white hover:bg-white/10"
-                )}
-              >
-                {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-              </button>
-              <button 
-                onClick={leaveChannel}
-                className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-600/20"
-              >
-                <PhoneOff className="w-5 h-5" />
-                Disconnect
-              </button>
-            </div>
-          )}
-          
-          {voiceError && (
-            <div className="flex items-center gap-2 text-red-400 text-xs bg-red-400/10 px-4 py-2 rounded-lg border border-red-400/20">
-              <AlertCircle className="w-4 h-4" />
-              {voiceError}
-            </div>
-          )}
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 rounded-full border border-white/5">
-            {isVoiceConnected ? (
-              <div className="flex items-end gap-[2px] h-3">
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-1.5")} style={{ animationDelay: '0ms' }} />
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-2.5")} style={{ animationDelay: '150ms' }} />
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-2")} style={{ animationDelay: '300ms' }} />
-              </div>
-            ) : (
-              <div className="w-2 h-2 rounded-full bg-zinc-700" />
-            )}
-            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              {isVoiceConnected ? (isSpeaking ? "Speaking..." : "Voice Active") : "Voice Offline"}
-            </span>
-          </div>
-        </div>
-      </footer>
       <DebugPanel />
     </div>
   );

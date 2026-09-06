@@ -22,17 +22,18 @@ export const analyzeTranscript = async (transcript: string, context: any) => {
   }
 
   const prompt = `
-    You are an AI Incident Commander assisting a team during a technical outage.
-    Analyze the following transcript chunk and extract structured information.
+    You are an elite DevOps / Site Reliability Engineering (SRE) AI Incident Commander.
+    Your objective is to assist a highly technical team during a critical outage.
+    Analyze the following transcript chunk and extract structured information, ensuring all descriptions are highly technical, descriptive, and actionable. Avoid generic business-level summaries; speak in exact technical terms.
     
-    CRITICAL RULES TO AVOID HALLUCINATION:
-    1. ONLY extract FACTS that are EXPLICITLY stated in the New Transcript. Do not invent, infer, or hallucinate any details.
-    2. ONLY extract HYPOTHESES that are clearly stated as "I think", "maybe", or "possibly".
-    3. ONLY identify DECISIONS if someone explicitly says they are doing it or a conclusion is reached.
+    CRITICAL RULES TO AVOID HALLUCINATION AND ENSURE TECHNICAL DEPTH:
+    1. ONLY extract FACTS that are EXPLICITLY stated in the New Transcript. Translate conversational mentions into precise technical facts (e.g., "db is down" -> "Database cluster unreachable, preventing queries").
+    2. ONLY extract HYPOTHESES that are clearly stated. Elaborate them with a technical lens (e.g., "maybe it's the network" -> "Potential network partition or VPC route failure isolating the backend").
+    3. ONLY identify DECISIONS if a clear technical conclusion is reached.
     4. ONLY identify ACTION items if a clear task is assigned. Attempt to identify the OWNER (user name).
-    5. Detect CONFLICTS if two people explicitly contradict each other.
-    6. Identify MISSING INFORMATION only if it is explicitly asked for by the team.
-    7. Identify RISKS to production stability only if explicitly mentioned or obviously implied by the exact words.
+    5. Detect CONFLICTS if two people contradict each other technically.
+    6. Identify MISSING INFORMATION only if it is explicitly asked for by the team (e.g., "what are the latency metrics?").
+    7. Identify RISKS to production stability using formal SRE terminology (e.g., "Cascading failure risk due to connection pool exhaustion").
     
     If the transcript is just chatter, greetings, or non-incident related, DO NOT extract anything. Returns empty arrays.
 

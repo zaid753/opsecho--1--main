@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Zap, Mail, Lock, Loader2, AlertCircle } from "lucide-react";
+import { Zap, Mail, Lock, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 import client from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -30,6 +30,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-6">
+      <Link to="/" className="absolute top-8 left-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors">
+        <ArrowLeft className="w-4 h-4" />
+        Back to Home
+      </Link>
+      
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
