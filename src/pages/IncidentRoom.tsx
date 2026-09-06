@@ -79,7 +79,7 @@ export default function IncidentRoom() {
   
   const aiPredictionFeed = React.useMemo(() => {
     if (!incident) return [];
-    
+
     const facts = (incident.facts || []).map((f: any) => ({
       id: f.id,
       type: 'fact',
@@ -582,72 +582,7 @@ export default function IncidentRoom() {
                   exit={{ opacity: 0, y: -10 }}
                   className="grid grid-cols-[1.2fr_1fr] gap-6"
                 >
-                  {/* Left Column: Post-Mortem or Live Transcript */}
-                  {incident.status === 'RESOLVED' ? (
-                    <div className="glass-panel flex flex-col h-[calc(100vh-14rem)] rounded-3xl border border-zinc-200 dark:border-white/10 relative overflow-hidden bg-white dark:bg-zinc-900/40">
-                      <div className="h-16 px-6 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between shrink-0 bg-white/50 dark:bg-black/20">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                          <h2 className="font-bold">Post-Mortem Report</h2>
-                        </div>
-                        {isEditingSummary ? (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setIsEditingSummary(false);
-                                setEditedSummary(incident.summary || "");
-                              }}
-                              className="px-3 py-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={handleSaveSummary}
-                              disabled={isSavingSummary}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {isSavingSummary ? (
-                                <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                              ) : (
-                                <Save className="w-3 h-3" />
-                              )}
-                              Save Changes
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setIsEditingSummary(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-lg transition-colors"
-                          >
-                            <Pencil className="w-3 h-3" />
-                            Edit Report
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                        {isEditingSummary ? (
-                          <textarea
-                            value={editedSummary}
-                            onChange={(e) => setEditedSummary(e.target.value)}
-                            className="w-full h-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl p-6 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none font-mono"
-                            placeholder="Write post-mortem summary here..."
-                          />
-                        ) : (
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            {incident.summary ? (
-                              <ReactMarkdown>{incident.summary}</ReactMarkdown>
-                            ) : (
-                              <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-4 mt-20">
-                                <div className="w-8 h-8 border-2 border-zinc-300 dark:border-white/20 border-t-zinc-600 dark:border-t-white/60 rounded-full animate-spin" />
-                                <p>Generating AI summary...</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
+                  {/* Left Column: Live Transcript */}
                   <div className="glass-panel p-6 flex flex-col h-[calc(100vh-14rem)] rounded-3xl border border-zinc-200 dark:border-white/10 relative overflow-hidden bg-white dark:bg-zinc-900/40">
                     <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-blue-500/10 to-transparent pointer-events-none" />
                     <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-zinc-50 dark:from-[#060606] to-transparent pointer-events-none" />
@@ -692,7 +627,6 @@ export default function IncidentRoom() {
                       <div ref={liveTranscriptEndRef} />
                     </div>
                   </div>
-                  )}
 
                   {/* Right Column: Action Items & Conflicts */}
                   <div className="flex flex-col gap-6 h-[calc(100vh-14rem)] overflow-y-auto pr-2">
@@ -792,60 +726,70 @@ export default function IncidentRoom() {
                   exit={{ opacity: 0, y: -10 }}
                   className="max-w-4xl mx-auto py-4 space-y-6"
                 >
-                  <div className="bg-white/50 dark:bg-zinc-900/40 p-8 rounded-3xl border border-zinc-200 dark:border-indigo-500/20 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-10">
-                      <Activity className="w-32 h-32 text-indigo-500" />
+                    <div className="glass-panel flex flex-col h-[calc(100vh-14rem)] rounded-3xl border border-zinc-200 dark:border-white/10 relative overflow-hidden bg-white dark:bg-zinc-900/40">
+                      <div className="h-16 px-6 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between shrink-0 bg-white/50 dark:bg-black/20">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                          <h2 className="font-bold">Post-Mortem Report</h2>
+                        </div>
+                        {isEditingSummary ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setIsEditingSummary(false);
+                                setEditedSummary(incident.summary || "");
+                              }}
+                              className="px-3 py-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={handleSaveSummary}
+                              disabled={isSavingSummary}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {isSavingSummary ? (
+                                <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                              ) : (
+                                <Save className="w-3 h-3" />
+                              )}
+                              Save Changes
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setIsEditingSummary(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-lg transition-colors"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit Report
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                        {isEditingSummary ? (
+                          <textarea
+                            value={editedSummary}
+                            onChange={(e) => setEditedSummary(e.target.value)}
+                            className="w-full h-full bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/10 rounded-xl p-6 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none font-mono"
+                            placeholder="Write post-mortem summary here..."
+                          />
+                        ) : (
+                          <div className="prose prose-sm dark:prose-invert max-w-none">
+                            {incident.summary ? (
+                              <ReactMarkdown>{incident.summary}</ReactMarkdown>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-4 mt-20">
+                                <div className="w-8 h-8 border-2 border-zinc-300 dark:border-white/20 border-t-zinc-600 dark:border-t-white/60 rounded-full animate-spin" />
+                                <p>Generating AI summary...</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <h2 className="text-2xl font-bold mb-2">Incident Summary Report</h2>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-8 max-w-xl">
-                      Auto-generated by OpsEcho AI based on extracted facts, hypotheses, and action items.
-                    </p>
 
-                    <div className="space-y-8 relative z-10">
-                      <section>
-                        <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4" /> Core Facts
-                        </h3>
-                        <ul className="list-disc pl-5 space-y-2 text-zinc-700 dark:text-zinc-300 text-sm">
-                          {incident.facts?.length > 0 ? (
-                            incident.facts.map((f: any) => <li key={f.id}>{f.description}</li>)
-                          ) : (
-                            <li className="text-zinc-600 italic">No facts extracted yet.</li>
-                          )}
-                        </ul>
-                      </section>
-
-                      <section>
-                        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                          <HelpCircle className="w-4 h-4" /> Leading Hypotheses
-                        </h3>
-                        <ul className="list-disc pl-5 space-y-2 text-zinc-700 dark:text-zinc-300 text-sm">
-                          {incident.hypotheses?.length > 0 ? (
-                            incident.hypotheses.map((h: any) => <li key={h.id}>{h.description}</li>)
-                          ) : (
-                            <li className="text-zinc-600 italic">No hypotheses proposed yet.</li>
-                          )}
-                        </ul>
-                      </section>
-
-                      <section>
-                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                          <Zap className="w-4 h-4" /> Required Actions
-                        </h3>
-                        <ul className="list-disc pl-5 space-y-2 text-zinc-700 dark:text-zinc-300 text-sm">
-                          {incident.actions?.length > 0 ? (
-                            incident.actions.map((a: any) => (
-                              <li key={a.id} className={a.status === 'DONE' ? 'line-through text-zinc-500' : ''}>
-                                {a.description} <span className="text-[10px] bg-zinc-200 dark:bg-white/10 px-1.5 py-0.5 rounded ml-2 text-zinc-600 dark:text-zinc-400">{a.status}</span>
-                              </li>
-                            ))
-                          ) : (
-                            <li className="text-zinc-600 italic">No action items assigned.</li>
-                          )}
-                        </ul>
-                      </section>
-                    </div>
-                  </div>
                 </motion.div>
               )}
 
