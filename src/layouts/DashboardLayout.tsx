@@ -1,7 +1,8 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Zap, LayoutDashboard, History, Settings, LogOut, PlusCircle, UserCircle } from "lucide-react";
+import { Zap, LayoutDashboard, History, Settings, LogOut, PlusCircle, UserCircle, Sun, Moon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import BackButton from "../components/BackButton";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -12,6 +13,7 @@ function cn(...inputs: ClassValue[]) {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -93,9 +95,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h2>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">
-              <UserCircle className="w-6 h-6" />
+            <button 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="p-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+              title="Toggle Theme"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
+            <Link to="/settings" className="p-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">
+              <UserCircle className="w-6 h-6" />
+            </Link>
           </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8">

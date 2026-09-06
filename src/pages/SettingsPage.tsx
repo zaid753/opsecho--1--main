@@ -29,11 +29,10 @@ export default function SettingsPage() {
   });
 
   const [integrations, setIntegrations] = useState<string[]>([]);
-  const API_URL = "http://localhost:3000/api";
 
   useEffect(() => {
     if (user?.id) {
-      fetch(`${API_URL}/integrations`, {
+      fetch(`/api/integrations`, {
         headers: { "x-user-id": user.id }
       })
       .then(res => res.json())
@@ -48,13 +47,13 @@ export default function SettingsPage() {
 
   const handleConnectIntegration = (provider: string) => {
     if (!user) return;
-    window.location.href = `${API_URL}/integrations/${provider}/authorize?userId=${user.id}`;
+    window.location.href = `/api/integrations/${provider}/authorize?userId=${user.id}`;
   };
 
   const handleDisconnectIntegration = async (provider: string) => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_URL}/integrations/${provider}`, {
+      const res = await fetch(`/api/integrations/${provider}`, {
         method: "DELETE",
         headers: { "x-user-id": user.id }
       });

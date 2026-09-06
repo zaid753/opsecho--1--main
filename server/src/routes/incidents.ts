@@ -335,7 +335,7 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
 
     // 5. Broadcast the final resolved state
     const io = req.app.get("io");
-    io.to(`incident:${id}`).emit("incident:updated", incident);
+    io?.to(`incident:${id}`).emit("incident:updated", incident);
 
     res.json(incident);
   } catch (error) {

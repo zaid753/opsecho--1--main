@@ -22,7 +22,7 @@ function AppRoutes() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0a0a] flex items-center justify-center transition-colors duration-200">
         <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );

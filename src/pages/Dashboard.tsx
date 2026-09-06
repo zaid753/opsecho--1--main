@@ -58,7 +58,7 @@ export default function Dashboard() {
   return (
     <div className="relative min-h-[calc(100vh-80px)] -mt-8 pt-8">
       {/* Background Mesh */}
-      <div className="absolute inset-0 -z-10 bg-mesh opacity-50 mix-blend-screen pointer-events-none" />
+      <div className="absolute inset-0 -z-10 hidden dark:block bg-mesh opacity-50 mix-blend-screen pointer-events-none" />
       
       <div className="max-w-6xl mx-auto space-y-8 px-4 pb-12 relative z-10">
       {/* Welcome & Stats */}
@@ -68,7 +68,7 @@ export default function Dashboard() {
           <div className="absolute top-0 right-0 w-96 h-96 bg-white/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 group-hover:scale-110 transition-transform duration-1000 ease-out" />
           <div className="relative z-10">
             <h1 className="text-4xl font-display font-bold mb-3 tracking-tight text-white">Command Center</h1>
-            <p className="text-blue-100/90 mb-8 max-w-lg text-lg font-light">Coordinate effectively, analyze real-time audio evidence, and resolve critical technical issues faster.</p>
+            <p className="text-indigo-100 dark:text-blue-100/90 mb-8 max-w-lg text-lg font-light">Coordinate effectively, analyze real-time audio evidence, and resolve critical technical issues faster.</p>
             <div className="flex gap-4">
               <Link to="/create" className="px-8 py-4 bg-white text-indigo-700 font-bold rounded-2xl hover:shadow-[0_0_20px_rgba(255,255,255,0.4)] transition-all hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2">
                 <Plus className="w-5 h-5" />
@@ -81,7 +81,7 @@ export default function Dashboard() {
         <div className="glass-panel p-8 rounded-[2rem] flex flex-col justify-between relative overflow-hidden group">
           <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
           <div className="relative z-10">
-            <p className="text-sm font-semibold tracking-wider text-zinc-400 uppercase mb-6 flex items-center gap-2">
+            <p className="text-sm font-semibold tracking-wider text-zinc-600 dark:text-zinc-400 uppercase mb-6 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               Join Active Room
             </p>
@@ -92,7 +92,7 @@ export default function Dashboard() {
                   placeholder="Room Code (PAY-4827)"
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 px-4 focus:ring-2 focus:ring-indigo-500/50 outline-none text-center font-mono tracking-widest text-lg transition-all focus:bg-black/60 shadow-inner placeholder:text-zinc-600"
+                  className="w-full bg-white/50 dark:bg-black/40 border border-zinc-200 dark:border-white/10 rounded-2xl py-4 px-4 focus:ring-2 focus:ring-indigo-500/50 outline-none text-center font-mono tracking-widest text-lg transition-all focus:bg-white/80 dark:focus:bg-black/60 shadow-inner placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-zinc-900 dark:text-white"
                 />
                 {joinError && <p className="text-xs text-red-400 mt-2 ml-2 font-medium">{joinError}</p>}
               </div>
@@ -122,11 +122,11 @@ export default function Dashboard() {
               <input 
                 type="text" 
                 placeholder="Search incidents..." 
-                className="bg-zinc-950/50 border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-indigo-500/50 transition-all shadow-inner w-64"
+                className="bg-white/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-indigo-500/50 transition-all shadow-inner w-64 text-zinc-900 dark:text-white"
               />
             </div>
-            <button className="p-2.5 bg-zinc-950/50 border border-white/5 rounded-xl hover:bg-white/5 transition-colors">
-              <Filter className="w-4 h-4 text-zinc-400" />
+            <button className="p-2.5 bg-white/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-white/5 rounded-xl hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors">
+              <Filter className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             </button>
           </div>
         </div>
@@ -164,12 +164,12 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <div className="flex items-center gap-3 mb-1.5">
-                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-black/40 text-zinc-300 border border-white/10 uppercase tracking-widest shadow-inner">
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-black/40 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-white/10 uppercase tracking-widest shadow-inner">
                         {incident.roomCode}
                       </span>
-                      <h4 className="font-display font-semibold text-lg tracking-tight text-white group-hover:text-indigo-200 transition-colors">{incident.title}</h4>
+                      <h4 className="font-display font-semibold text-lg tracking-tight text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-200 transition-colors">{incident.title}</h4>
                     </div>
-                    <div className="flex items-center gap-5 text-sm text-zinc-400 font-medium">
+                    <div className="flex items-center gap-5 text-sm text-zinc-600 dark:text-zinc-400 font-medium">
                       <div className="flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 opacity-70" />
                         {new Date(incident.createdAt).toLocaleDateString()}
@@ -181,7 +181,7 @@ export default function Dashboard() {
                       <div className="flex items-center gap-1.5">
                         <div className="flex -space-x-2">
                           {[...Array(Math.min(3, incident.participants.length))].map((_, idx) => (
-                            <div key={idx} className="w-5 h-5 rounded-full bg-zinc-700 border-2 border-zinc-900 shadow-sm"></div>
+                            <div key={idx} className="w-5 h-5 rounded-full bg-zinc-300 dark:bg-zinc-700 border-2 border-white dark:border-zinc-900 shadow-sm"></div>
                           ))}
                         </div>
                         <span className="ml-1 text-xs opacity-70">{incident.participants.length} Active</span>
@@ -191,7 +191,7 @@ export default function Dashboard() {
                 </div>
                 <Link
                   to={`/incident/${incident.id}`}
-                  className="p-4 rounded-2xl bg-white/5 border border-white/0 group-hover:border-white/10 group-hover:bg-indigo-500/10 text-zinc-400 group-hover:text-indigo-300 group-hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] transition-all duration-300 transform group-hover:scale-105 active:scale-95"
+                  className="p-4 rounded-2xl bg-zinc-100 dark:bg-white/5 border border-transparent group-hover:border-indigo-500/20 dark:group-hover:border-white/10 group-hover:bg-indigo-500/10 text-zinc-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-all duration-300 transform group-hover:scale-105 active:scale-95"
                 >
                   <ArrowUpRight className="w-6 h-6" />
                 </Link>
@@ -202,12 +202,12 @@ export default function Dashboard() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="text-center py-24 glass-panel border-dashed border-2 border-white/10 rounded-[2rem]"
+            className="text-center py-24 glass-panel border-dashed border-2 border-zinc-200 dark:border-white/10 rounded-[2rem]"
           >
-            <div className="w-20 h-20 bg-zinc-900/50 rounded-full flex items-center justify-center mx-auto mb-6 border border-white/5 shadow-inner">
-              <Activity className="w-10 h-10 text-zinc-600" />
+            <div className="w-20 h-20 bg-zinc-100 dark:bg-zinc-900/50 rounded-full flex items-center justify-center mx-auto mb-6 border border-zinc-200 dark:border-white/5 shadow-inner">
+              <Activity className="w-10 h-10 text-zinc-400 dark:text-zinc-600" />
             </div>
-            <h4 className="font-display font-bold text-xl text-zinc-300 mb-2">No active incidents</h4>
+            <h4 className="font-display font-bold text-xl text-zinc-900 dark:text-zinc-300 mb-2">No active incidents</h4>
             <p className="text-zinc-500">Great job! Everything seems stable right now.</p>
           </motion.div>
         )}
