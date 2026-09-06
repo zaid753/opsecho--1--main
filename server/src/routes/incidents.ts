@@ -346,4 +346,43 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Update Incident Summary
+router.patch("/:id/summary", authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const { summary } = req.body;
+  const userId = req.user?.id;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!summary) return res.status(400).json({ error: "Summary is required" });
+
+  try {
+    const incident = await prisma.incident.update({
+      where: { id },
+      data: { summary },
+      include: {
+        createdBy: { select: { name: true, role: true } },
+        participants: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+        },
+        actions: { include: { owner: { select: { name: true } } } },
+        facts: true,
+        hypotheses: true,
+        decisions: true,
+        conflicts: true,
+        transcripts: { orderBy: { timestamp: "desc" }, take: 50 },
+        timeline: { orderBy: { timestamp: "asc" } },
+      }
+    });
+
+    // Broadcast the updated state
+    const io = req.app.get("io");
+    io?.to(`incident:${id}`).emit("incident:updated", incident);
+
+    res.json(incident);
+  } catch (error) {
+    console.error("Update summary error:", error);
+    res.status(500).json({ error: "Failed to update incident summary" });
+  }
+});
+
 export default router;
