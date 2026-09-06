@@ -201,7 +201,7 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
 // Persists the transcript and asynchronously triggers AI analysis.
 router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const { text } = req.body;
+  const { text, source } = req.body;  // source: 'voice' | 'chat' — sent by useGeminiSTT for voice
   const userId = req.user?.id;
   const userName = req.user?.name || 'Unknown';
 
@@ -224,8 +224,10 @@ router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
     res.json(transcript);
 
     // Trigger AI analysis in the background (fire-and-forget, do not await)
+    // Pass through the source so the AI knows if this was voice or typed chat
     const io = req.app.get("io");
-    processTranscript(io, null, id, text.trim(), userName, userId, transcript).catch(console.error);
+    const transcriptSource: 'voice' | 'chat' = source === 'voice' ? 'voice' : 'chat';
+    processTranscript(io, null, id, text.trim(), userName, userId, transcript, transcriptSource).catch(console.error);
 
   } catch (error) {
     console.error("Chat message error:", error);

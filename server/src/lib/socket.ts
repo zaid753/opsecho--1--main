@@ -74,7 +74,7 @@ export const initSocket = (server: http.Server) => {
 
     socket.on("TRANSCRIPT_FINAL", ({ incidentId, text }: { incidentId: string; text: string }) => {
       // Fire and forget: AI processes asynchronously and doesn't block the socket thread
-      processTranscript(io, socket, incidentId, text, user.name, user.id).catch(console.error);
+      processTranscript(io, socket, incidentId, text, user.name, user.id, undefined, 'voice').catch(console.error);
     });
 
     socket.on("disconnect", () => {
