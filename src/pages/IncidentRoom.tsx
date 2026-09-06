@@ -51,6 +51,7 @@ export default function IncidentRoom() {
   const [incident, setIncident] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [uptime, setUptime] = useState("00:00:00");
