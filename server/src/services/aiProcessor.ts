@@ -9,7 +9,8 @@ export const processTranscript = async (
   text: string, 
   userName: string,
   userId: string,
-  existingTranscript?: any
+  existingTranscript?: any,
+  source: 'voice' | 'chat' = 'voice'
 ) => {
   try {
     // 1. Persist Transcript
@@ -30,7 +31,7 @@ export const processTranscript = async (
     // Broadcast transcript to room
     io.to(`incident:${incidentId}`).emit("TRANSCRIPT_NEW", transcript);
 
-    // 2. Fetch Context for AI
+    // 2. Fetch Context for AI — include BOTH voice transcripts AND chat messages
     const incident = await prisma.incident.findUnique({
       where: { id: incidentId },
       include: {
@@ -40,27 +41,60 @@ export const processTranscript = async (
         decisions: true,
         transcripts: {
           orderBy: { timestamp: "desc" },
-          take: 10
+          take: 20  // Increased to get richer context from both voice and chat
         }
       }
     });
 
     if (!incident) return;
 
-    // 3. Analyze with AI
-    // Send recent conversation history + the new transcript
-    const recentHistory = incident.transcripts.reverse().map(t => `${t.userName}: ${t.text}`).join("\n");
+    // 3. Build unified conversation history (voice + chat alike — all are transcripts)
+    const recentHistory = incident.transcripts
+      .slice()
+      .reverse()  // oldest first
+      .map(t => `[${t.userName}]: ${t.text}`)
+      .join("\n");
+
+    // 4. Analyze with AI
     const aiResult = await analyzeTranscript(text, {
       title: incident.title,
       severity: incident.severity,
-      existingFacts: incident.facts.map(f => f.description),
+      existingFacts: incident.facts.map(f => ({ id: f.id, description: f.description })),
       existingHypotheses: incident.hypotheses.map(h => h.description),
-      recentHistory: recentHistory
+      recentHistory: recentHistory,
+      source: source === 'voice' ? `${userName} (voice)` : `${userName} (chat)`
     });
 
     if (!aiResult) return;
 
-    // 4. Update Database with AI Insights (Parallelized)
+    // 5. Handle contradiction demotion (factsToDowngrade)
+    //    For each fact the AI says is now invalidated: delete the fact and add it as a hypothesis.
+    if (aiResult.factsToDowngrade && aiResult.factsToDowngrade.length > 0) {
+      for (const description of aiResult.factsToDowngrade) {
+        // Find the matching fact (case-insensitive fuzzy match on description)
+        const matchingFact = incident.facts.find(f =>
+          f.description.toLowerCase().trim() === description.toLowerCase().trim()
+        );
+
+        if (matchingFact) {
+          // Delete the old fact
+          await prisma.fact.delete({ where: { id: matchingFact.id } });
+
+          // Re-add it as a hypothesis (now considered uncertain)
+          await prisma.hypothesis.create({
+            data: {
+              incidentId,
+              description: `[Superseded] ${matchingFact.description}`,
+              proposer: 'AI Observer',
+            },
+          });
+
+          console.log(`[AI] Demoted fact to hypothesis: "${matchingFact.description}"`);
+        }
+      }
+    }
+
+    // 6. Update Database with new AI Insights (Parallelized)
     const promises = [];
 
     if (aiResult.facts && aiResult.facts.length > 0) {
@@ -83,7 +117,7 @@ export const processTranscript = async (
     }
 
     if (aiResult.actions && aiResult.actions.length > 0) {
-      // Gap 4: Fuzzy-match the AI-extracted owner name to a real participant
+      // Fuzzy-match the AI-extracted owner name to a real participant
       const participants = await prisma.incidentParticipant.findMany({
         where: { incidentId },
         include: { user: { select: { id: true, name: true } } }
@@ -154,7 +188,7 @@ export const processTranscript = async (
       io.to(`incident:${incidentId}`).emit("AI_SPEAK", { text: aiResult.aiResponse, id: aiTranscript.id });
     }
 
-    // 5. Broadcast refreshed state
+    // 7. Broadcast refreshed state
     const updatedIncident = await prisma.incident.findUnique({
       where: { id: incidentId },
       include: {

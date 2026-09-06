@@ -22,38 +22,53 @@ export const analyzeTranscript = async (transcript: string, context: any) => {
   }
 
   const prompt = `
-    You are an AI Incident Commander assisting a team during a technical outage.
-    Analyze the following transcript chunk and extract structured information.
+    You are an elite DevOps / Site Reliability Engineering (SRE) AI Incident Commander.
+    You analyze ALL input — whether spoken voice transcripts OR typed chat messages — equally and with full rigor.
+    Your objective is to assist a highly technical team during a critical outage.
+
+    Analyze the following new input and extract structured information.
+    Ensure all descriptions are highly technical, descriptive, and actionable.
+
+    CRITICAL RULES:
+    1. ONLY extract FACTS that are EXPLICITLY stated. Translate conversational language into precise technical facts.
+       E.g., "db is down" → "Database cluster unreachable, queries failing across all services."
+    2. ONLY extract HYPOTHESES clearly stated or strongly implied.
+       E.g., "maybe it's the network" → "Potential network partition or VPC route failure isolating the backend."
+    3. ONLY identify DECISIONS if a clear technical conclusion is reached.
+    4. ONLY identify ACTIONS if a clear task is assigned. Identify the OWNER (user name) if mentioned.
+    5. Detect CONFLICTS if two pieces of information technically contradict each other.
+    6. Identify RISKS using formal SRE terminology.
+    7. If the input is chatter, greetings, or non-incident related, return empty arrays for everything.
+
+    ═══════════ CONTRADICTION & DEMOTION RULE ═══════════
+    This is the most important rule:
+    Review "Existing Facts" carefully. If the new input CONTRADICTS or INVALIDATES any existing fact:
+    - Add the old fact's EXACT description to "factsToDowngrade" (this will demote it to a hypothesis).
+    - Add the NEW information as a new FACT.
     
-    CRITICAL RULES TO AVOID HALLUCINATION:
-    1. ONLY extract FACTS that are EXPLICITLY stated in the New Transcript. Do not invent, infer, or hallucinate any details.
-    2. ONLY extract HYPOTHESES that are clearly stated as "I think", "maybe", or "possibly".
-    3. ONLY identify DECISIONS if someone explicitly says they are doing it or a conclusion is reached.
-    4. ONLY identify ACTION items if a clear task is assigned. Attempt to identify the OWNER (user name).
-    5. Detect CONFLICTS if two people explicitly contradict each other.
-    6. Identify MISSING INFORMATION only if it is explicitly asked for by the team.
-    7. Identify RISKS to production stability only if explicitly mentioned or obviously implied by the exact words.
-    
-    If the transcript is just chatter, greetings, or non-incident related, DO NOT extract anything. Returns empty arrays.
+    Example:
+    - Existing Fact: "Database is down."
+    - New Input: "Actually the database is up, it's the load balancer that's misconfigured."
+    - → Put "Database is down." in factsToDowngrade.
+    - → Add "Load balancer is misconfigured, causing connection routing failures." as a new fact.
+    ═════════════════════════════════════════════════════
 
     Current Incident Context:
     Title: ${context.title}
     Severity: ${context.severity}
-    Existing Facts: ${JSON.stringify(context.existingFacts)}
+    Existing Facts (check for contradictions!): ${JSON.stringify(context.existingFacts)}
     Existing Hypotheses: ${JSON.stringify(context.existingHypotheses)}
 
-    Recent Conversation History:
+    Recent Conversation History (voice + chat combined):
     ${context.recentHistory}
 
-    New Transcript (to analyze):
+    New Input (voice transcript or chat message from ${context.source || 'participant'}):
     "${transcript}"
 
-    Return the result in JSON format. Do not return empty arrays if there are no new items, just omit them or leave them empty.
-    
     TURN-TAKING RULES for aiResponse:
-    - Only provide an aiResponse if a user directly addresses you (e.g., "OpsEcho, what do you think?"), if you detect a critical conflict that the humans missed, or if you need to announce a major finalized decision.
-    - DO NOT provide an aiResponse just to say "I've noted that fact" or to acknowledge normal conversation.
-    - Remain completely silent (omit aiResponse) unless your input adds significant tactical value to the incident response.
+    - Only provide an aiResponse if a user directly addresses you, if you detect a critical conflict, or to announce a major downgrade of a fact.
+    - DO NOT provide an aiResponse just to acknowledge normal conversation.
+    - Remain silent (omit aiResponse) unless your input adds significant tactical value.
   `;
 
   try {
@@ -71,8 +86,13 @@ export const analyzeTranscript = async (transcript: string, context: any) => {
             actions: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { description: { type: Type.STRING }, owner: { type: Type.STRING }, isCritical: { type: Type.BOOLEAN } } } },
             conflicts: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { description: { type: Type.STRING } } } },
             risks: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { description: { type: Type.STRING } } } },
+            factsToDowngrade: {
+              type: Type.ARRAY,
+              description: "Exact descriptions of existing facts that are now contradicted and should be demoted to hypotheses.",
+              items: { type: Type.STRING }
+            },
             summary: { type: Type.STRING },
-            aiResponse: { type: Type.STRING, description: "A concise, conversational response from the AI Incident Commander acknowledging the transcript, confirming extracted info, or asking for clarifications." }
+            aiResponse: { type: Type.STRING, description: "A concise response from the AI Incident Commander, only when it adds tactical value." }
           }
         }
       }
@@ -84,6 +104,7 @@ export const analyzeTranscript = async (transcript: string, context: any) => {
     return null;
   }
 };
+
 
 export const generateIncidentSummary = async (incident: any) => {
   if (!ai) {

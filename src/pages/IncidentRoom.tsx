@@ -20,6 +20,24 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import BackButton from "../components/BackButton";
 import DebugPanel from "../components/DebugPanel";
+import { Settings as SettingsIcon } from "lucide-react";
+
+const WaveBars = ({ active = true }: { active?: boolean }) => {
+  const bars = Array.from({ length: 28 });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 2.5, height: 30, justifyContent: "center" }}>
+      {bars.map((_, i) => (
+        <div key={i} className={active ? "wave-bar" : ""} style={{ width: 3, height: active ? `${8 + (i % 5) * 5}px` : "4px", background: i % 3 === 0 ? "#3B66E0" : "#EBF0FE", borderRadius: 2, animationDelay: `${(i % 7) * 0.09}s`, opacity: active ? 1 : 0.4 }} />
+      ))}
+    </div>
+  );
+};
+
+const TYPE_META: Record<string, { label: string, color: string, soft: string }> = {
+  transcript: { label: "Transcript", color: "#6B7280", soft: "#F3F4F6" },
+  fact: { label: "Fact", color: "#3B66E0", soft: "#EBF0FE" },
+  hypothesis: { label: "Hypothesis", color: "#C9860F", soft: "#FBF1DE" },
+};
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -43,7 +61,36 @@ export default function IncidentRoom() {
   const spokenTranscriptIdsRef = useRef<Set<string>>(new Set());
   const [activePartials, setActivePartials] = useState<Record<string, { userName: string, text: string, timestamp: number }>>({});
   
+  const aiPredictionFeed = React.useMemo(() => {
+    if (!incident) return [];
+    
+    const facts = (incident.facts || []).map((f: any) => ({
+      id: f.id,
+      type: 'fact',
+      text: f.description,
+      speaker: f.source || 'AI Observer',
+      timestamp: f.timestamp
+    }));
+    
+    const hypotheses = (incident.hypotheses || []).map((h: any) => ({
+      id: h.id,
+      type: 'hypothesis',
+      text: h.description,
+      speaker: h.proposer || 'AI Observer',
+      timestamp: h.timestamp
+    }));
+    
+    return [...facts, ...hypotheses].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  }, [incident]);
+  
   const chatEndRef = React.useRef<HTMLDivElement>(null);
+  const liveTranscriptEndRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    liveTranscriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [aiPredictionFeed.length]);
 
   // REST-based chat — works on Vercel without persistent WebSocket
   const handleSendChat = async (e: React.FormEvent) => {
@@ -123,28 +170,6 @@ export default function IncidentRoom() {
       const updated = res.data;
       setIncident(updated);
 
-      // ── AI Spoken Summaries (Gap 2) ──────────────────────────────────────────
-      // Speak any new AI Observer transcript that we haven't spoken yet
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        const aiTranscripts = (updated.transcripts || [])
-          .filter((t: any) => t.userName === 'AI Observer');
-        for (const t of aiTranscripts) {
-          if (!spokenTranscriptIdsRef.current.has(t.id)) {
-            spokenTranscriptIdsRef.current.add(t.id);
-            const utterance = new SpeechSynthesisUtterance(t.text);
-            utterance.rate = 1.05;
-            utterance.pitch = 0.9;
-            // Prefer a natural-sounding voice if available
-            const voices = window.speechSynthesis.getVoices();
-            const preferred = voices.find(v =>
-              v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha'))
-            );
-            if (preferred) utterance.voice = preferred;
-            window.speechSynthesis.speak(utterance);
-          }
-        }
-      }
-
       // ── Critical Action Confirmation (Gap 3) ─────────────────────────────────
       // Surface any newly-detected critical actions that haven't been acknowledged
       const criticals = (updated.actions || []).filter((a: any) => a.isCritical && a.status === 'TODO');
@@ -164,8 +189,7 @@ export default function IncidentRoom() {
     // Run once immediately so it doesn't wait 1s for the first tick
     const updateTimer = () => {
       const start = new Date(incident.createdAt).getTime();
-      const end = incident.status === "RESOLVED" && incident.updatedAt ? new Date(incident.updatedAt).getTime() : Date.now();
-      const diff = end - start;
+      const diff = Date.now() - start;
       if (diff < 0) return;
       
       const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -178,9 +202,6 @@ export default function IncidentRoom() {
     };
     
     updateTimer();
-    
-    // If it's resolved, the time is fixed, no need to run the interval
-    if (incident.status === "RESOLVED") return;
 
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
@@ -201,28 +222,13 @@ export default function IncidentRoom() {
         
         return {
           ...prev,
-          transcripts: [newTranscript, ...(prev.transcripts || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          // API returns desc order (newest first), so prepend the new transcript
+          transcripts: [newTranscript, ...(prev.transcripts || [])],
         };
       });
       
       // Auto-scroll chat
       setTimeout(scrollToBottom, 100);
-
-      // Speak AI Observer new messages
-      if (newTranscript.userName === 'AI Observer' && typeof window !== 'undefined' && window.speechSynthesis) {
-        if (!spokenTranscriptIdsRef.current.has(newTranscript.id)) {
-          spokenTranscriptIdsRef.current.add(newTranscript.id);
-          const utterance = new SpeechSynthesisUtterance(newTranscript.text);
-          utterance.rate = 1.05;
-          utterance.pitch = 0.9;
-          const voices = window.speechSynthesis.getVoices();
-          const preferred = voices.find(v =>
-            v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha'))
-          );
-          if (preferred) utterance.voice = preferred;
-          window.speechSynthesis.speak(utterance);
-        }
-      }
     };
 
     const handleIncidentUpdated = (updatedIncident: any) => {
@@ -314,6 +320,17 @@ export default function IncidentRoom() {
     );
   }
 
+  if (!incident) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-zinc-400 font-medium">Incident not found or access denied.</p>
+          <button onClick={() => navigate('/dashboard')} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">Back to Dashboard</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen bg-[#060606] text-white flex flex-col overflow-hidden relative"
     >
@@ -360,9 +377,6 @@ export default function IncidentRoom() {
             </div>
             <span className="text-xs text-zinc-500 font-medium">{incident.participants.length} Active</span>
           </div>
-          <button className="p-2 hover:bg-white/5 rounded-lg transition-colors">
-            <Share2 className="w-5 h-5 text-zinc-400" />
-          </button>
           {incident.status !== 'RESOLVED' && (
             <button 
               onClick={handleResolve}
@@ -436,14 +450,93 @@ export default function IncidentRoom() {
               </div>
             </section>
           </div>
+
+          <div className="p-4 mx-4 mt-2 mb-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 bottom-0 bg-indigo-500" />
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-indigo-400" />
+              <p className="text-xs font-bold text-indigo-200 tracking-wider">AIOBSERVER</p>
+              {isVoiceConnected && !isMuted && (
+                <span className="ml-auto text-[8px] uppercase tracking-widest text-indigo-400 font-mono animate-pulse">
+                  ● Listening
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] leading-relaxed text-indigo-200/70 italic">
+              Listening to the room. I will automatically extract facts and actions as they are discussed.
+            </p>
+          </div>
+
+          <div className="mt-auto p-4 border-t border-indigo-500/20 bg-black/20">
+            {!isVoiceConnected ? (
+              <button 
+                onClick={joinChannel}
+                disabled={isJoining}
+                className={cn(
+                  "w-full py-3 font-bold rounded-xl flex items-center justify-center gap-2 transition-all text-sm",
+                  isJoining ? "bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20"
+                )}
+              >
+                {isJoining ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4" />
+                    Join Voice Room
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={toggleMute}
+                  className={cn(
+                    "flex-1 p-3 rounded-xl transition-all border flex items-center justify-center gap-2 font-bold text-sm",
+                    isMuted ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-white/5 border-white/10 text-white hover:bg-white/10"
+                  )}
+                >
+                  {isMuted ? (
+                    <>
+                      <MicOff className="w-4 h-4" />
+                      Muted
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4" />
+                      Mic On
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={leaveChannel}
+                  className="p-3 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-100 rounded-xl transition-all"
+                  title="Hang Up"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            
+            {voiceError && (
+              <div className="mt-3 flex items-center gap-2 text-red-400 text-xs bg-red-400/10 px-3 py-2 rounded-lg border border-red-400/20">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {voiceError}
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* Center: Main Dashboard Tabs */}
         <div className="flex-1 flex flex-col relative z-10">
           <div className="flex items-center px-6 h-12 border-b border-white/5 gap-6">
             <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")} label="Overview" icon={<Layout className="w-4 h-4" />} />
-            <TabButton active={activeTab === "timeline"} onClick={() => setActiveTab("timeline")} label="Timeline" icon={<History className="w-4 h-4" />} />
+            <TabButton active={activeTab === "transcript"} onClick={() => setActiveTab("transcript")} label="Transcript" icon={<MessageSquare className="w-4 h-4" />} />
             <TabButton active={activeTab === "evidence"} onClick={() => setActiveTab("evidence")} label="Evidence" icon={<FileText className="w-4 h-4" />} />
+            <TabButton active={activeTab === "report"} onClick={() => setActiveTab("report")} label="Report" icon={<CheckCircle2 className="w-4 h-4" />} />
+            <TabButton active={activeTab === "timeline"} onClick={() => setActiveTab("timeline")} label="Timeline" icon={<History className="w-4 h-4" />} />
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
@@ -453,96 +546,213 @@ export default function IncidentRoom() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="grid grid-cols-2 gap-6"
+                  className="grid grid-cols-[1.2fr_1fr] gap-6"
                 >
-                  <Section title="Confirmed Facts" icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />}>
-                    <div className="space-y-3">
-                      {incident.facts?.map((f: any) => (
-                        <div key={f.id} className="p-3 glass-card rounded-xl text-xs leading-relaxed">
-                          {f.description}
-                        </div>
-                      ))}
-                      {(!incident.facts || incident.facts.length === 0) && (
-                        <p className="text-zinc-600 text-[11px] italic p-2">AI is listening for confirmed facts...</p>
-                      )}
-                    </div>
-                  </Section>
-
-                  <Section title="Hypotheses" icon={<HelpCircle className="w-4 h-4 text-orange-500" />}>
-                    <div className="space-y-3">
-                      {incident.hypotheses?.map((h: any) => (
-                        <div key={h.id} className="p-3 glass-card rounded-xl text-xs leading-relaxed">
-                          {h.description}
-                        </div>
-                      ))}
-                      {(!incident.hypotheses || incident.hypotheses.length === 0) && (
-                        <p className="text-zinc-600 text-[11px] italic p-2">Identifying possible causes...</p>
-                      )}
-                    </div>
-                  </Section>
-
-                  {/* Conflicts & Missing Info (Gap 1 — now shown) */}
-                  {incident.conflicts && incident.conflicts.length > 0 && (
-                    <Section title="Conflicts & Gaps" icon={<AlertTriangle className="w-4 h-4 text-red-400" />} className="col-span-2">
-                      <div className="grid grid-cols-2 gap-3">
-                        {incident.conflicts.map((c: any) => (
-                          <div key={c.id} className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-xs leading-relaxed text-red-200 flex items-start gap-2">
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
-                            {c.description}
-                          </div>
-                        ))}
+                  {/* Left Column: Unified Live Transcript */}
+                  <div className="glass-panel p-6 flex flex-col h-[calc(100vh-14rem)] rounded-3xl border border-white/10 relative overflow-hidden bg-zinc-900/40">
+                    <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-blue-500/10 to-transparent pointer-events-none" />
+                    <div className="mb-6 relative z-10 flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                          <Activity className="w-5 h-5 text-blue-400" />
+                          Live Transcript
+                        </h3>
+                        <p className="text-xs text-blue-400/80 font-medium tracking-wide mt-1">OpsEcho AI is listening — classified in real time</p>
                       </div>
-                    </Section>
-                  )}
-
-                  <Section title="Action Items" icon={<Zap className="w-4 h-4 text-blue-500" />} className="col-span-2">
-                    <div className="grid grid-cols-2 gap-4">
-                      {incident.actions?.map((a: any) => (
-                        <div key={a.id} className={cn(
-                          "p-4 rounded-2xl flex items-center justify-between group transition-colors relative overflow-hidden",
-                          a.isCritical
-                            ? "bg-amber-500/10 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]"
-                            : "hud-card"
-                        )}>
-                          {/* Animated scanline effect inside action items */}
-                          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent h-[200%] animate-scanline pointer-events-none" />
-                          <div className="flex items-center gap-3 relative z-10">
-                            <div className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center",
-                              a.isCritical ? "bg-amber-500/20" : "bg-zinc-800"
-                            )}>
-                              {a.isCritical
-                                ? <AlertTriangle className="w-4 h-4 text-amber-400" />
-                                : <Zap className="w-4 h-4 text-blue-400" />}
+                      <div className="flex gap-2">
+                        <span className="text-[10px] font-mono px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">STT: Active</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto pr-2 space-y-4 relative z-10 flex flex-col">
+                      {aiPredictionFeed.length === 0 && (
+                        <div className="m-auto text-center flex flex-col items-center gap-3">
+                          <Mic className="w-8 h-8 text-white/10" />
+                          <p className="text-zinc-500 italic text-sm">AI is listening — facts and hypotheses will appear here</p>
+                        </div>
+                      )}
+                      {aiPredictionFeed.map((item: any, idx: number) => {
+                        const meta = TYPE_META[item.type] || TYPE_META.transcript;
+                        return (
+                          <div key={item.id || idx} className="rounded-2xl p-4 shadow-sm relative group border" style={{ background: meta.soft, borderColor: `${meta.color}30` }}>
+                            <div className="absolute top-0 bottom-0 left-0 w-1 rounded-l-2xl" style={{ background: meta.color }} />
+                            <div className="flex justify-between items-center mb-2 pl-3">
+                              <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full" style={{ color: meta.color, background: `${meta.color}20` }}>
+                                {meta.label}
+                              </span>
+                              <span className="text-[10px] text-zinc-500 font-mono opacity-80">
+                                {new Date(item.timestamp).toLocaleTimeString()}
+                              </span>
                             </div>
-                            <div>
-                              <p className={cn("text-xs font-bold mb-0.5", a.status === 'DONE' && "line-through opacity-50")}>{a.description}</p>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-zinc-500 uppercase tracking-wider">{a.owner?.name || "Unassigned"}</span>
-                                <span className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded border uppercase tracking-widest",
-                                  a.status === 'DONE' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                  a.isCritical
-                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                    : "bg-blue-500/10 text-blue-400 border-blue-500/10"
-                                )}>{a.status === 'DONE' ? 'DONE' : (a.isCritical ? 'CRITICAL' : a.status)}</span>
+                            <p className="text-[13px] font-semibold leading-relaxed pl-3 pr-1" style={{ color: '#1a1a2e' }}>{item.text}</p>
+                            <p className="text-[10px] text-zinc-500 mt-2 font-medium tracking-wide uppercase pl-3">{item.speaker}</p>
+                          </div>
+                        );
+                      })}
+                      {/* Invisible element to ensure scrolling to bottom works if needed */}
+                      <div ref={liveTranscriptEndRef} />
+                    </div>
+                  </div>
+
+                  {/* Right Column: Action Items & Conflicts */}
+                  <div className="flex flex-col gap-6 h-[calc(100vh-14rem)] overflow-y-auto pr-2">
+
+                    {incident.conflicts && incident.conflicts.length > 0 && (
+                      <Section title="Conflicts & Gaps" icon={<AlertTriangle className="w-4 h-4 text-red-400" />}>
+                        <div className="grid grid-cols-1 gap-3">
+                          {incident.conflicts.map((c: any) => (
+                            <div key={c.id} className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-xs leading-relaxed text-red-200 flex items-start gap-2">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
+                              {c.description}
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+
+                    <Section title="Action Items" icon={<Zap className="w-4 h-4 text-blue-500" />}>
+                      <div className="grid grid-cols-1 gap-3">
+                        {incident.actions?.map((a: any) => (
+                          <div key={a.id} className={cn(
+                            "p-4 rounded-2xl flex items-center justify-between group transition-colors relative overflow-hidden",
+                            a.isCritical
+                              ? "bg-amber-500/10 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.1)]"
+                              : "hud-card"
+                          )}>
+                            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent h-[200%] animate-scanline pointer-events-none" />
+                            <div className="flex items-center gap-3 relative z-10">
+                              <div className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center",
+                                a.isCritical ? "bg-amber-500/20" : "bg-zinc-800"
+                              )}>
+                                {a.isCritical
+                                  ? <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                  : <Zap className="w-4 h-4 text-blue-400" />}
+                              </div>
+                              <div>
+                                <p className={cn("text-xs font-bold mb-0.5", a.status === 'DONE' && "line-through opacity-50")}>{a.description}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] text-zinc-500 uppercase tracking-wider">{a.owner?.name || "Unassigned"}</span>
+                                  <span className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded border uppercase tracking-widest",
+                                    a.status === 'DONE' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                    a.isCritical
+                                      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                      : "bg-blue-500/10 text-blue-400 border-blue-500/10"
+                                  )}>{a.status === 'DONE' ? 'DONE' : (a.isCritical ? 'CRITICAL' : a.status)}</span>
+                                </div>
                               </div>
                             </div>
+                            <button 
+                              onClick={() => handleActionComplete(a.id, a.status)}
+                              className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 rounded-lg transition-all z-10 relative"
+                              title="Toggle Status"
+                            >
+                              {a.status === 'DONE' ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <CheckCircle2 className="w-5 h-5 text-zinc-500" />}
+                            </button>
                           </div>
-                          <button 
-                            onClick={() => handleActionComplete(a.id, a.status)}
-                            className="opacity-0 group-hover:opacity-100 p-2 hover:bg-white/10 rounded-lg transition-all"
-                            title="Toggle Status"
-                          >
-                            {a.status === 'DONE' ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <CheckCircle2 className="w-5 h-5 text-zinc-500" />}
-                          </button>
+                        ))}
+                        {(!incident.actions || incident.actions.length === 0) && (
+                          <p className="text-zinc-600 text-xs italic text-center py-4">No action items assigned yet.</p>
+                        )}
+                      </div>
+                    </Section>
+                  </div>
+                </motion.div>
+              )}
+
+              {activeTab === "transcript" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="max-w-3xl mx-auto space-y-4 py-4"
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold">Raw Transcripts</h2>
+                    <p className="text-xs text-zinc-500">Unfiltered speech-to-text log</p>
+                  </div>
+                  {(!incident.transcripts || incident.transcripts.length === 0) ? (
+                    <div className="text-center py-12 glass-card rounded-2xl">
+                      <Mic className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
+                      <p className="text-zinc-500 text-sm">No speech detected yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {incident.transcripts.map((t: any) => (
+                        <div key={t.id} className="p-4 glass-card rounded-2xl flex flex-col gap-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-blue-400">{t.userName}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">{new Date(t.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="text-sm text-zinc-200">{t.text}</p>
                         </div>
                       ))}
-                      {(!incident.actions || incident.actions.length === 0) && (
-                        <p className="text-zinc-600 text-xs italic col-span-2 text-center py-4">No action items assigned yet.</p>
-                      )}
                     </div>
-                  </Section>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === "report" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="max-w-4xl mx-auto py-4 space-y-6"
+                >
+                  <div className="glass-panel p-8 rounded-3xl border border-indigo-500/20 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-8 opacity-10">
+                      <Activity className="w-32 h-32 text-indigo-500" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">Incident Summary Report</h2>
+                    <p className="text-sm text-zinc-400 mb-8 max-w-xl">
+                      Auto-generated by OpsEcho AI based on extracted facts, hypotheses, and action items.
+                    </p>
+
+                    <div className="space-y-8 relative z-10">
+                      <section>
+                        <h3 className="text-sm font-bold text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" /> Core Facts
+                        </h3>
+                        <ul className="list-disc pl-5 space-y-2 text-zinc-300 text-sm">
+                          {incident.facts?.length > 0 ? (
+                            incident.facts.map((f: any) => <li key={f.id}>{f.description}</li>)
+                          ) : (
+                            <li className="text-zinc-600 italic">No facts extracted yet.</li>
+                          )}
+                        </ul>
+                      </section>
+
+                      <section>
+                        <h3 className="text-sm font-bold text-orange-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <HelpCircle className="w-4 h-4" /> Leading Hypotheses
+                        </h3>
+                        <ul className="list-disc pl-5 space-y-2 text-zinc-300 text-sm">
+                          {incident.hypotheses?.length > 0 ? (
+                            incident.hypotheses.map((h: any) => <li key={h.id}>{h.description}</li>)
+                          ) : (
+                            <li className="text-zinc-600 italic">No hypotheses proposed yet.</li>
+                          )}
+                        </ul>
+                      </section>
+
+                      <section>
+                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <Zap className="w-4 h-4" /> Required Actions
+                        </h3>
+                        <ul className="list-disc pl-5 space-y-2 text-zinc-300 text-sm">
+                          {incident.actions?.length > 0 ? (
+                            incident.actions.map((a: any) => (
+                              <li key={a.id} className={a.status === 'DONE' ? 'line-through text-zinc-500' : ''}>
+                                {a.description} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded ml-2 text-zinc-400">{a.status}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <li className="text-zinc-600 italic">No action items assigned.</li>
+                          )}
+                        </ul>
+                      </section>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -833,76 +1043,7 @@ export default function IncidentRoom() {
       </AnimatePresence>
 
 
-      {/* Control Bar */}
-      <footer className="h-20 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between px-8 shrink-0">
-        <div className="flex items-center gap-4">
-          {!isVoiceConnected ? (
-            <button 
-              onClick={joinChannel}
-              disabled={isJoining}
-              className={cn(
-                "px-6 py-2.5 font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg",
-                isJoining ? "bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20"
-              )}
-            >
-              {isJoining ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Mic className="w-5 h-5" />
-                  Join Voice Room
-                </>
-              )}
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={toggleMute}
-                className={cn(
-                  "p-3 rounded-xl transition-all border",
-                  isMuted ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-white/5 border-white/10 text-white hover:bg-white/10"
-                )}
-              >
-                {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-              </button>
-              <button 
-                onClick={leaveChannel}
-                className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-red-600/20"
-              >
-                <PhoneOff className="w-5 h-5" />
-                Disconnect
-              </button>
-            </div>
-          )}
-          
-          {voiceError && (
-            <div className="flex items-center gap-2 text-red-400 text-xs bg-red-400/10 px-4 py-2 rounded-lg border border-red-400/20">
-              <AlertCircle className="w-4 h-4" />
-              {voiceError}
-            </div>
-          )}
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 rounded-full border border-white/5">
-            {isVoiceConnected ? (
-              <div className="flex items-end gap-[2px] h-3">
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-1.5")} style={{ animationDelay: '0ms' }} />
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-2.5")} style={{ animationDelay: '150ms' }} />
-                <div className={cn("w-1 rounded-t-sm bg-emerald-500", isSpeaking ? "animate-[bounce_0.8s_infinite]" : "h-2")} style={{ animationDelay: '300ms' }} />
-              </div>
-            ) : (
-              <div className="w-2 h-2 rounded-full bg-zinc-700" />
-            )}
-            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              {isVoiceConnected ? (isSpeaking ? "Speaking..." : "Voice Active") : "Voice Offline"}
-            </span>
-          </div>
-        </div>
-      </footer>
       <DebugPanel />
     </div>
   );
