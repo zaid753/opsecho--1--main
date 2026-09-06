@@ -1,7 +1,11 @@
 import express from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
+
+import { postToSlack } from "../services/slack";
 import crypto from "crypto";
+import { processTranscript } from "../services/aiProcessor";
+import { generateIncidentSummary } from "../services/gemini";
 
 const router = express.Router();
 
@@ -174,6 +178,7 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
         hypotheses: true,
         decisions: true,
         timeline: { orderBy: { timestamp: "asc" } },
+        transcripts: { orderBy: { timestamp: "asc" } },
       },
     });
 
@@ -192,6 +197,86 @@ router.get("/:id", authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Send a chat message (typed or voice-to-text) — REST-based, Vercel-compatible.
+// Persists the transcript and asynchronously triggers AI analysis.
+router.post("/:id/chat", authenticate, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const { text, source } = req.body;  // source: 'voice' | 'chat' — sent by useGeminiSTT for voice
+  const userId = req.user?.id;
+  const userName = req.user?.name || 'Unknown';
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!text || !text.trim()) return res.status(400).json({ error: "Empty message" });
+
+  try {
+    // Verify participant
+    const participant = await prisma.incidentParticipant.findUnique({
+      where: { incidentId_userId: { incidentId: id, userId } },
+    });
+    if (!participant) return res.status(403).json({ error: "Forbidden" });
+
+    // Save transcript to DB
+    const transcript = await prisma.transcript.create({
+      data: { incidentId: id, userId, userName, text: text.trim() },
+    });
+
+    // Respond immediately with the new transcript
+    res.json(transcript);
+
+    // Trigger AI analysis in the background (fire-and-forget, do not await)
+    // Pass through the source so the AI knows if this was voice or typed chat
+    const io = req.app.get("io");
+    const transcriptSource: 'voice' | 'chat' = source === 'voice' ? 'voice' : 'chat';
+    processTranscript(io, null, id, text.trim(), userName, userId, transcript, transcriptSource).catch(console.error);
+
+  } catch (error) {
+    console.error("Chat message error:", error);
+    if (!res.headersSent) res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+// Update action status (e.g., confirm a critical action)
+router.patch("/:id/actions/:actionId", authenticate, async (req: AuthRequest, res) => {
+  const { id, actionId } = req.params;
+  const { status } = req.body;
+  const userId = req.user?.id;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!status) return res.status(400).json({ error: "Status required" });
+
+  try {
+    const participant = await prisma.incidentParticipant.findUnique({
+      where: { incidentId_userId: { incidentId: id, userId } },
+    });
+    if (!participant) return res.status(403).json({ error: "Forbidden" });
+
+    const action = await prisma.action.update({
+      where: { id: actionId },
+      data: { status },
+    });
+
+    // Log in timeline
+    await prisma.timelineEvent.create({
+      data: {
+        incidentId: id,
+        type: 'ACTION_CONFIRMED',
+        description: `Critical action confirmed: ${action.description}`,
+        metadata: { confirmedBy: userId, actionId }
+      }
+    });
+
+    // Send to Slack if integration exists
+    if (status === 'IN_PROGRESS') {
+      await postToSlack(userId, id, action.description);
+    }
+
+    res.json(action);
+  } catch (error) {
+    console.error("Update action error:", error);
+    res.status(500).json({ error: "Failed to update action" });
+  }
+});
+
 // Resolve Incident
 router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   const { id } = req.params;
@@ -200,10 +285,28 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   try {
+    // 1. Fetch current incident data for summary
+    const currentIncident = await prisma.incident.findUnique({
+      where: { id },
+      include: {
+        facts: true,
+        decisions: true,
+        actions: true,
+        risks: true
+      }
+    });
+
+    if (!currentIncident) return res.status(404).json({ error: "Incident not found" });
+
+    // 2. Generate summary
+    const summary = await generateIncidentSummary(currentIncident);
+
+    // 3. Persist summary and update status
     const incident = await prisma.incident.update({
       where: { id },
       data: { 
         status: "RESOLVED",
+        summary: summary,
         timeline: {
           create: {
             type: "STATUS_CHANGE",
@@ -212,8 +315,22 @@ router.post("/:id/resolve", authenticate, async (req: AuthRequest, res) => {
           }
         }
       },
+      include: {
+        createdBy: { select: { name: true, role: true } },
+        participants: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+        },
+        actions: { include: { owner: { select: { name: true } } } },
+        facts: true,
+        hypotheses: true,
+        decisions: true,
+        conflicts: true,
+        transcripts: { orderBy: { timestamp: "desc" }, take: 50 },
+        timeline: { orderBy: { timestamp: "asc" } },
+      },
     });
 
+    // 4. Broadcast the final resolved state
     const io = req.app.get("io");
     io.to(`incident:${id}`).emit("incident:updated", incident);
 

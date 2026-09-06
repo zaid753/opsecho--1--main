@@ -28,9 +28,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[#0a0a0a] text-zinc-900 dark:text-white flex transition-colors duration-200">
+    <div className="min-h-screen bg-zinc-50 dark:bg-[#060606] text-zinc-900 dark:text-white flex relative overflow-hidden transition-colors duration-200">
+      {/* Background Mesh (Dark Mode Only) */}
+      <div className="hidden dark:block absolute inset-0 z-0 bg-mesh opacity-80 pointer-events-none" />
+      <div className="hidden dark:block absolute inset-0 z-0 bg-gradient-to-br from-transparent via-[#0a0a0a]/60 to-[#0a0a0a]/90 pointer-events-none" />
+
       {/* Sidebar */}
-      <aside className="w-64 border-r border-zinc-200 dark:border-white/5 bg-white dark:bg-transparent flex flex-col shrink-0 transition-colors duration-200">
+      <aside className="w-64 border-r border-zinc-200 dark:border-white/5 bg-white dark:bg-black/20 dark:backdrop-blur-xl flex flex-col shrink-0 relative z-10 transition-colors duration-200 shadow-2xl">
         <div className="p-6">
           <Link to="/" className="flex items-center gap-2">
             <Zap className="w-6 h-6 text-blue-600 fill-blue-600" />
@@ -79,9 +83,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      <main className="flex-1 flex flex-col overflow-hidden relative z-10">
 
-        <header className="h-16 border-b border-zinc-200 dark:border-white/5 flex items-center justify-between px-8 bg-white/50 dark:bg-[#0a0a0a]/50 backdrop-blur-md transition-colors duration-200">
+        <header className="h-16 border-b border-zinc-200 dark:border-white/5 flex items-center justify-between px-8 bg-white/50 dark:bg-black/20 dark:backdrop-blur-md transition-colors duration-200 shadow-sm">
           <div className="flex items-center">
             {location.pathname !== '/dashboard' && <BackButton className="mr-4" />}
             <h2 className="font-bold text-lg text-zinc-900 dark:text-white">

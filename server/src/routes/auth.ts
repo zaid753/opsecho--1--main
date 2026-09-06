@@ -25,7 +25,7 @@ router.post("/register", async (req, res) => {
       },
     });
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
+    const token = jwt.sign({ id: user.id, name: user.name, role: user.role }, JWT_SECRET, {
       expiresIn: "1d",
     });
 
@@ -58,7 +58,7 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Invalid credentials" });
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
+    const token = jwt.sign({ id: user.id, name: user.name, role: user.role }, JWT_SECRET, {
       expiresIn: "1d",
     });
 
@@ -75,6 +75,23 @@ router.post("/login", async (req, res) => {
     console.error("Login error:", error);
     res.status(500).json({ error: "Failed to login" });
   }
+});
+
+router.get("/gemini-key", (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  jwt.verify(token, JWT_SECRET, (err: any) => {
+    if (err) return res.status(403).json({ error: "Forbidden" });
+    
+    // Only return key if authentication succeeds
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(500).json({ error: "Server missing Gemini API Key" });
+    
+    res.json({ key });
+  });
 });
 
 export default router;
